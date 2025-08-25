@@ -94,6 +94,8 @@ const app = express();
 const APP_TOKEN = process.env.APP_TOKEN || 'FromHectaroxWithLove';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 const PORT = Number(process.env.PORT || 3000);
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -260,9 +262,36 @@ function requireToken(req, res, next) {
 }
 
 // --------------------------
+// Basic auth for Admin panel
+// --------------------------
+function parseBasicAuth(req) {
+  const header = req.get('authorization') || '';
+  if (!/^Basic\s+/i.test(header)) return null;
+  try {
+    const b64 = header.replace(/^Basic\s+/i, '');
+    const s = Buffer.from(b64, 'base64').toString('utf8');
+    const i = s.indexOf(':');
+    if (i < 0) return null;
+    return { user: s.slice(0, i), pass: s.slice(i + 1) };
+  } catch (_) { return null; }
+}
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_PASSWORD) {
+    return res.status(500).send('Admin password not set on server');
+  }
+  const creds = parseBasicAuth(req);
+  if (!creds || creds.user !== ADMIN_USER || creds.pass !== ADMIN_PASSWORD) {
+    res.set('WWW-Authenticate', 'Basic realm="NutriLens Admin"');
+    return res.status(401).send('Authentication required');
+  }
+  next();
+}
+
+// --------------------------
 // Admin panel (simple HTML)
 // --------------------------
-app.get('/', (req, res) => {
+app.get('/', requireAdmin, (req, res) => {
   res.send(`<!doctype html>
   <html>
   <head>
@@ -308,7 +337,7 @@ app.get('/', (req, res) => {
 });
 
 // Admin invite (no auth for simplicity; in prod restrict this)
-app.post('/admin/invite', async (req, res) => {
+app.post('/admin/invite', requireAdmin, async (req, res) => {
   try {
     const { username } = req.body || {};
     if (!username || String(username).length < 3) return res.status(400).json({ ok:false, error:'username too short' });

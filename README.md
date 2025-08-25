@@ -29,6 +29,7 @@ npm start
 ```
 
 3) Open the admin panel at http://<server-ip>:3000/
+- You’ll be prompted for HTTP Basic Auth (set ADMIN_USER / ADMIN_PASSWORD in .env).
 - Use the Invite form; it returns a temporary password for the new user.
 
 If MySQL is remote, ensure port 3306 is open and login is permitted from the backend machine. The backend will create the database and tables on first run.
@@ -40,6 +41,7 @@ If MySQL is remote, ensure port 3306 is open and login is permitted from the bac
 - JWT_SECRET: Secret to sign JWTs (set a strong value in production)
 - DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME: MySQL connection
 - GEMINI_API_KEYS: Comma-separated Google Gemini API keys. Create keys at https://aistudio.google.com.
+- ADMIN_USER / ADMIN_PASSWORD: HTTP Basic Auth credentials to access the admin panel.
 - APP_BASE_URL/APP_PORT: For documentation; the Flutter app uses .env.client
 
 ## API summary
