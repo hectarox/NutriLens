@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "flutter-run-once",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"run"
+			],
+			"problemMatcher": [
+				"$dart"
+			],
+			"group": "build"
+		}
+	]
+}
