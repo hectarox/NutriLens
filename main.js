@@ -25,9 +25,11 @@ function getNextApiKey() {
 }
 
 async function handleRequestWithRetry(req, res, attempt = 0) {
+  if (!apiKeys || apiKeys.length === 0) {
+    return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
+  }
   if (attempt >= apiKeys.length) {
-    res.status(500).send('All API keys are invalid');
-    return;
+    return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
   }
 
   const apiKey = getNextApiKey();
@@ -86,7 +88,19 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     res.json({ ok: true, data: data ?? text });
   } catch (error) {
     console.error(`Error with API key ${apiKey}:`, error);
-    handleRequestWithRetry(req, res, attempt + 1);
+    const status = (error && (error.status || (error.response && error.response.status))) || 0;
+    // If model is overloaded or internal error, try remaining keys; if exhausted, return friendly message
+    if ((status === 503 || status === 500)) {
+      if (attempt + 1 < apiKeys.length) {
+        return handleRequestWithRetry(req, res, attempt + 1);
+      }
+      return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
+    }
+    // Other errors: keep rotating keys until exhausted, then return friendly message
+    if (attempt + 1 < apiKeys.length) {
+      return handleRequestWithRetry(req, res, attempt + 1);
+    }
+    return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
   }
 }
 
