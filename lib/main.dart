@@ -611,7 +611,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       final responseBody = await response.stream.bytesToString();
 
   if (response.statusCode == 200) {
-        String pretty;
+  String pretty;
         try {
           final decoded = json.decode(responseBody);
           if (decoded is Map && decoded['ok'] == true) {
@@ -834,27 +834,48 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             serverMsg = decoded['error'] as String;
           }
         } catch (_) {}
-        final is50x = response.statusCode == 503 || response.statusCode == 500;
-        final msg = (serverMsg != null && serverMsg.isNotEmpty)
-            ? serverMsg
-            : (is50x
-                ? 'AI is overloaded (503). You can retry with a faster, less precise model for this request.'
-                : 'Request failed (${response.statusCode})');
+    final is50x = response.statusCode == 503 || response.statusCode == 500;
+    final s = S.of(context);
+    final msg = (serverMsg != null && serverMsg.isNotEmpty)
+      ? serverMsg
+      : (is50x
+        ? s.aiOverloaded
+        : s.requestFailedWithCode(response.statusCode));
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(msg),
-              action: is50x
-                  ? SnackBarAction(
-                      label: 'Try flash',
-                      onPressed: () async {
-                        // Re-run with flash model hint
-                        await _sendMessageWithModel(useFlash: true);
-                      },
-                    )
-                  : null,
-            ),
-          );
+          if (is50x) {
+            // Show a popup dialog to switch to flash model
+      showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+        title: Text(s.flashTitle),
+        content: Text('$msg\n\n${s.flashExplain}'),
+                actions: [
+                  TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(s.cancel),
+                  ),
+                  OutlinedButton(
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      await _sendMessageFlashDebug();
+                    },
+                    child: Text(s.debugRaw),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      await _sendMessageWithModel(useFlash: true);
+                    },
+          child: Text(s.useFlash),
+                  ),
+                ],
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(msg)),
+            );
+          }
         }
       }
     } catch (e) {
@@ -919,16 +940,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         String? mealName;
         try {
           final decoded = json.decode(responseBody);
-          if (decoded is Map && decoded['ok'] == true && decoded['data'] is Map) {
-            structured = Map<String, dynamic>.from(decoded['data'] as Map);
+          if (decoded is Map && decoded['ok'] == true) {
+            if (decoded['data'] is Map) {
+              structured = Map<String, dynamic>.from(decoded['data'] as Map);
+            } else if (decoded['data'] is String) {
+              // Data is plain text; keep structured null and rely on pretty text
+              structured = null;
+            }
           } else if (decoded is Map) {
+            // Some servers may directly return the object
             structured = Map<String, dynamic>.from(decoded);
           }
         } catch (_) {}
         if (structured != null) {
           mealName = structured["Nom de l'aliment"]?.toString();
         }
-        String textSource = structured != null ? jsonEncode(structured) : pretty;
+        final textSource = structured != null ? jsonEncode(structured) : pretty;
         final kcalMatch = RegExp(r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)', caseSensitive: false).firstMatch(textSource);
         if (kcalMatch != null) {
           final raw = kcalMatch.group(1)!.replaceAll(',', '.');
@@ -1077,6 +1104,55 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _sendMessageFlashDebug() async {
+    // Sends the same request with flash=1 and shows the raw response body in a dialog for debugging.
+    if (_image == null && _controller.text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).provideMsgOrImage)),
+        );
+      }
+      return;
+    }
+  // Force pro model for debugging to compare against flash behavior
+  final uri = Uri.parse('${_baseUrl()}/data?flash=0');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['message'] = _controller.text;
+    request.headers['x-app-token'] = 'FromHectaroxWithLove';
+    if (authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
+    if (_image != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        _image!.path,
+        contentType: MediaType.parse(lookupMimeType(_image!.path) ?? 'application/octet-stream'),
+      ));
+    }
+    if (mounted) setState(() => _loading = true);
+    String body = '';
+    int status = 0;
+    try {
+      final response = await request.send();
+      status = response.statusCode;
+      body = await response.stream.bytesToString();
+    } catch (e) {
+      body = 'Error: $e';
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+    if (!mounted) return;
+    final s = S.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${s.debugRawTitle} (${status})'),
+        content: SingleChildScrollView(child: SelectableText(body.isEmpty ? s.emptyResponse : body)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(s.ok)),
+        ],
+      ),
+    );
   }
 
   void _pruneHistory() {
@@ -2635,6 +2711,14 @@ class S {
   String get hcAuthorized => _code == 'fr' ? 'Autorisé' : 'Authorized';
   String get hcNotAuthorized => _code == 'fr' ? 'Non autorisé' : 'Not authorized';
   String get lastError => _code == 'fr' ? 'Dernière erreur' : 'Last error';
+  // Flash popup and error strings
+  String get flashTitle => _code == 'fr' ? 'Utiliser le modèle flash ?' : 'Use flash model?';
+  String get flashExplain => _code == 'fr'
+      ? 'Cela va réessayer une fois avec un modèle plus rapide et moins précis (gemini-2.5-flash).'
+      : 'This will retry once with a faster, less precise model (gemini-2.5-flash).';
+  String get useFlash => _code == 'fr' ? 'Utiliser flash' : 'Use flash';
+  String get aiOverloaded => _code == 'fr' ? 'L’IA est surchargée (503).' : 'AI is overloaded (503).';
+  String requestFailedWithCode(int code) => _code == 'fr' ? 'Échec de la requête ($code)' : 'Request failed ($code)';
   String get checkStatus => _code == 'fr' ? 'Vérifier le statut' : 'Check status';
   String get grantPermissions => _code == 'fr' ? 'Autoriser' : 'Grant permissions';
   String get hcGranted => _code == 'fr' ? 'Autorisations accordées' : 'Permissions granted';
@@ -2690,6 +2774,9 @@ class S {
   String get result => _code == 'fr' ? 'Résultat' : 'Result';
   String get copy => _code == 'fr' ? 'Copier' : 'Copy';
   String get copied => _code == 'fr' ? 'Copié dans le presse‑papiers' : 'Copied to clipboard';
+  String get debugRaw => _code == 'fr' ? 'Debug brut' : 'Debug raw';
+  String get debugRawTitle => _code == 'fr' ? 'Réponse brute' : 'Raw response';
+  String get emptyResponse => _code == 'fr' ? 'Réponse vide' : 'Empty response';
 
   String get mealDetails => _code == 'fr' ? 'Détails du repas' : 'Meal details';
   String get edit => _code == 'fr' ? 'Modifier' : 'Edit';
