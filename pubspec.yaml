@@ -50,6 +50,7 @@ dependencies:
   url_launcher: ^6.3.0
   font_awesome_flutter: ^10.7.0
   flutter_dotenv: ^5.1.0
+  mobile_scanner: ^6.0.5
 
 dev_dependencies:
   flutter_test:

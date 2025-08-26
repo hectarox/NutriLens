@@ -453,6 +453,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.6"
+  mobile_scanner:
+    dependency: "direct main"
+    description:
+      name: mobile_scanner
+      sha256: f536c5b8cadcf73d764bdce09c94744f06aa832264730f8971b21a60c5666826
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.0.10"
   path:
     dependency: transitive
     description:

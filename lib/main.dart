@@ -15,6 +15,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 // permission_handler not required for nutrition; we rely on health plugin's auth flow
 
 // Simple app settings with locale persistence
@@ -422,6 +423,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   bool? _healthAuthorized; // null = unknown
   String? _healthLastError;
   HealthConnectSdkStatus? _hcSdkStatus;
+  // Health: energy burned cache for today
+  double? _todayTotalBurnedKcal;
+  double? _todayActiveBurnedKcal;
+  bool _loadingBurned = false;
 
   @override
   void initState() {
@@ -436,6 +441,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     // ignore: discarded_futures
     _checkHealthStatus();
   }
+  // Try to prefetch burned energy for today (no-op on unsupported platforms)
+  // ignore: discarded_futures
+  _loadTodayBurned();
   }
 
   @override
@@ -867,6 +875,93 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _loadTodayBurned() async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    DateTime now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = now;
+    try {
+      await _ensureHealthConfigured();
+      if (Platform.isAndroid) {
+        final status = await _health.getHealthConnectSdkStatus();
+        if (mounted) setState(() => _hcSdkStatus = status);
+        if (status != HealthConnectSdkStatus.sdkAvailable) return;
+      }
+      // Mandatory permission: TOTAL_CALORIES_BURNED
+      final totalGranted = await _health.requestAuthorization(
+        [HealthDataType.TOTAL_CALORIES_BURNED],
+        permissions: const [HealthDataAccess.READ],
+      );
+      if (!totalGranted) {
+        if (mounted) setState(() => _healthLastError = 'Permission denied for TOTAL_CALORIES_BURNED');
+        return;
+      }
+      // Optional permission: ACTIVE_ENERGY_BURNED (may be unavailable on some devices)
+      bool activeGranted = false;
+      try {
+        activeGranted = await _health.requestAuthorization(
+          [HealthDataType.ACTIVE_ENERGY_BURNED],
+          permissions: const [HealthDataAccess.READ],
+        );
+      } catch (_) {
+        activeGranted = false;
+      }
+      if (mounted) setState(() => _loadingBurned = true);
+      // Fetch TOTAL points
+      final totalPoints = await _health.getHealthDataFromTypes(
+        startTime: start,
+        endTime: end,
+        types: const [HealthDataType.TOTAL_CALORIES_BURNED],
+      );
+      double sumTotal = 0.0;
+      for (final dp in totalPoints) {
+        final v = _asDouble(dp.value);
+        if (v == null || !v.isFinite) continue;
+        sumTotal += v;
+      }
+      // Fetch ACTIVE if granted
+      double? sumActive;
+      if (activeGranted) {
+        try {
+          final activePoints = await _health.getHealthDataFromTypes(
+            startTime: start,
+            endTime: end,
+            types: const [HealthDataType.ACTIVE_ENERGY_BURNED],
+          );
+          double tmp = 0.0;
+          for (final dp in activePoints) {
+            final v = _asDouble(dp.value);
+            if (v == null || !v.isFinite) continue;
+            tmp += v;
+          }
+          sumActive = tmp;
+        } catch (_) {
+          sumActive = null;
+        }
+      }
+      final total = sumTotal;
+      if (mounted) {
+        setState(() {
+          _todayActiveBurnedKcal = sumActive;
+          _todayTotalBurnedKcal = total;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _healthLastError = e.toString());
+    } finally {
+      if (mounted) setState(() => _loadingBurned = false);
+    }
+  }
+
+  double? _asDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    final s = v.toString();
+    final m = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(s);
+    if (m != null) return double.tryParse(m.group(0)!);
+    return null;
+  }
+
   Map<String, List<Map<String, dynamic>>> _groupHistoryByDay() {
     final Map<String, List<Map<String, dynamic>>> groups = {};
     final now = DateTime.now();
@@ -1040,105 +1135,238 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           totalCarbs: totalCarbs,
           totalProtein: totalProtein,
           totalFat: totalFat,
-          children: entry.value.map((meal) => _HistoryMealCard(
-            meal: meal,
-            onDelete: () async {
-              // Attempt to delete from Health Connect if previously written
-              try {
-                await _ensureHealthConfigured();
-                if (!kIsWeb && Platform.isAndroid && (meal['hcWritten'] == true)) {
-                  final hs = meal['hcStart'];
-                  final he = meal['hcEnd'];
-                  final start = hs is DateTime ? hs : (hs is String ? DateTime.tryParse(hs) : null);
-                  final end = he is DateTime ? he : (he is String ? DateTime.tryParse(he) : null);
-                  if (start != null && end != null) {
-                    // Ensure permissions and delete nutrition entries in the same timespan
-                    await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
-                    await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
+          children: entry.value.map<Widget>((meal) {
+            return _HistoryMealCard(
+              meal: meal,
+              onDelete: () async {
+                // Attempt to delete from Health Connect if previously written
+                try {
+                  await _ensureHealthConfigured();
+                  if (!kIsWeb && Platform.isAndroid && (meal['hcWritten'] == true)) {
+                    final hs = meal['hcStart'];
+                    final he = meal['hcEnd'];
+                    final start = hs is DateTime ? hs : (hs is String ? DateTime.tryParse(hs) : null);
+                    final end = he is DateTime ? he : (he is String ? DateTime.tryParse(he) : null);
+                    if (start != null && end != null) {
+                      // Ensure permissions and delete nutrition entries in the same timespan
+                      await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
+                      await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
+                    }
                   }
-                }
-              } catch (_) {}
-              setState(() => _history.remove(meal));
-              await _saveHistory();
-            },
-            onTap: () => _showMealDetails(meal),
-          )).toList(),
+                } catch (_) {}
+                setState(() => _history.remove(meal));
+                await _saveHistory();
+              },
+              onTap: () => _showMealDetails(meal),
+            );
+          }).toList(),
         );
       }).toList(),
     );
   }
 
   Widget _buildMainTab() {
-  final s = S.of(context);
-    final canUseCamera = kIsWeb || (!kIsWeb && (Platform.isAndroid || Platform.isIOS));
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-            Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _controller,
-                    maxLines: 2,
-                    decoration: InputDecoration(
-                      labelText: s.describeMeal,
-                      hintText: s.describeMealHint,
+    final s = S.of(context);
+    final canUseCamera = !kIsWeb && !(Platform.isLinux || Platform.isWindows || Platform.isMacOS);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _controller,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: s.describeMeal,
+                    hintText: s.describeMealHint,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    if (canUseCamera)
+                      FilledButton.icon(
+                        onPressed: _scanBarcode,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: Text(s.scanBarcode),
+                      ),
+                    if (canUseCamera)
+                      FilledButton.icon(
+                        onPressed: _captureImage,
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        label: Text(s.takePhoto),
+                      ),
+                    FilledButton.icon(
+                      onPressed: _pickImage,
+                      icon: const Icon(Icons.image_outlined),
+                      label: Text(s.pickImage),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 8,
-                    children: [
-                      if (canUseCamera)
-                        FilledButton.icon(
-                          onPressed: _captureImage,
-                          icon: const Icon(Icons.photo_camera_outlined),
-                          label: Text(s.takePhoto),
-                        ),
-                      FilledButton.icon(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.image_outlined),
-                        label: Text(s.pickImage),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _loading ? null : _sendMessage,
-                        icon: const Icon(Icons.send_rounded),
-                        label: Text(_loading ? s.sending : s.sendToAI),
-                      ),
-                    ],
-                  ),
-                  if (_image != null) ...[
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        File(_image!.path),
-                        height: 200,
-                        fit: BoxFit.cover,
-                      ),
+                    FilledButton.icon(
+                      onPressed: _loading ? null : _sendMessage,
+                      icon: const Icon(Icons.send_rounded),
+                      label: Text(_loading ? s.sending : s.sendToAI),
                     ),
                   ],
+                ),
+                if (_image != null) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_image!.path),
+                      height: 200,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          if (_resultText.isNotEmpty) _FormattedResultCard(resultText: _resultText),
+        ),
+        const SizedBox(height: 8),
+        if (_resultText.isNotEmpty) _FormattedResultCard(resultText: _resultText),
+      ],
+    );
+  }
+
+  Future<void> _scanBarcode() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const _BarcodeScannerScreen()),
+    );
+    if (!mounted || code == null || code.isEmpty) return;
+    // Fetch product from Open Food Facts
+    final product = await _fetchOffProduct(code);
+    if (product == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produit non trouvé')));
+      return;
+    }
+    // Ask user quantity: empty for full package, or custom weight
+    final qty = await _askQuantity(defaultServing: product.servingSizeGrams);
+    if (!mounted) return;
+    final grams = qty?.trim().isEmpty == true ? product.servingSizeGrams : int.tryParse(qty ?? '');
+    // Build meal from OFF nutrients (per 100g scaled or per serving)
+    final scaled = product.scaleFor(grams);
+    final newMeal = {
+      'image': null,
+      'imagePath': null,
+      'description': product.name ?? 'Packaged food',
+      'name': product.name,
+      'result': product.prettyDescription(grams),
+      'structured': {
+        'Calories': '${scaled.kcal?.toStringAsFixed(0) ?? '-'} kcal',
+        'Carbs': '${scaled.carbs?.toStringAsFixed(0) ?? '-'} g',
+        'Proteins': '${scaled.protein?.toStringAsFixed(0) ?? '-'} g',
+        'Fats': '${scaled.fat?.toStringAsFixed(0) ?? '-'} g',
+      },
+      'kcal': scaled.kcal?.round(),
+      'carbs': scaled.carbs?.round(),
+      'protein': scaled.protein?.round(),
+      'fat': scaled.fat?.round(),
+      'time': DateTime.now(),
+      'hcWritten': false,
+    };
+    setState(() {
+      _history.add(newMeal);
+      _pruneHistory();
+    });
+    await _saveHistory();
+    if (mounted) {
+      _tabController.animateTo(0);
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) _showMealDetails(newMeal);
+      });
+    }
+    // Optionally, write to Health Connect if desired
+    try {
+      await _ensureHealthConfigured();
+      final kcal = scaled.kcal?.round();
+      final carbs = scaled.carbs?.round();
+      final protein = scaled.protein?.round();
+      final fat = scaled.fat?.round();
+      if ((kcal != null || carbs != null || protein != null || fat != null) && !kIsWeb && Platform.isAndroid) {
+        final status = await _health.getHealthConnectSdkStatus();
+        if (mounted) setState(() => _hcSdkStatus = status);
+        if (status == HealthConnectSdkStatus.sdkAvailable) {
+          final ok = await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
+          if (ok) {
+            final start = DateTime.now();
+            final end = start.add(const Duration(minutes: 1));
+            newMeal['hcStart'] = start;
+            newMeal['hcEnd'] = end;
+            final written = await _health.writeMeal(
+              mealType: MealType.UNKNOWN,
+              startTime: start,
+              endTime: end,
+              caloriesConsumed: kcal?.toDouble(),
+              carbohydrates: carbs?.toDouble(),
+              protein: protein?.toDouble(),
+              fatTotal: fat?.toDouble(),
+              name: product.name,
+            );
+            if (mounted && written) {
+              setState(() => newMeal['hcWritten'] = true);
+              await _saveHistory();
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<String?> _askQuantity({int? defaultServing}) async {
+    final controller = TextEditingController();
+    final s = S.of(context);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Quantité (g/ml)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(defaultServing != null
+                ? 'Laissez vide pour quantité par défaut (${defaultServing}g), ou entrez une quantité personnalisée.'
+                : 'Laissez vide pour quantité totale du paquet, ou entrez une quantité personnalisée.'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(hintText: 'Ex: 330'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: Text(s.save)),
         ],
       ),
     );
   }
 
+  Future<_OffProduct?> _fetchOffProduct(String barcode) async {
+    try {
+      // Open Food Facts public API (no key required); "run the api on the device" interpreted as direct device-side HTTP call
+      final uri = Uri.parse('https://world.openfoodfacts.org/api/v2/product/$barcode.json');
+      final res = await http.get(uri);
+      if (res.statusCode != 200) return null;
+      final jsonMap = json.decode(res.body);
+      if (jsonMap is! Map || jsonMap['product'] is! Map) return null;
+      return _OffProduct.fromJson(jsonMap['product'] as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Widget _buildDailyTab() {
-  final s = S.of(context);
+    final s = S.of(context);
     final todayKcal = _todayKcal();
-  final todayCarbs = _todayCarbs();
+    final todayCarbs = _todayCarbs();
     final pct = _dailyLimit == 0 ? 0.0 : (todayKcal / _dailyLimit).clamp(0.0, 2.0);
     Color barColor;
     if (pct < 0.7) {
@@ -1149,8 +1377,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       final over = (pct - 1.0).clamp(0.0, 1.0);
       barColor = Color.lerp(Colors.red.shade600, Colors.red.shade900, over) ?? Colors.red;
     }
-
-    return SingleChildScrollView(
+  return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1185,6 +1412,81 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.local_fire_department),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(s.burnedTodayTitle, style: Theme.of(context).textTheme.titleLarge)),
+                        IconButton(
+                          tooltip: s.burnedHelp,
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(s.burnedTodayTitle),
+                                content: Text(s.burnedHelpText),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok)),
+                                ],
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.help_outline),
+                        ),
+                        IconButton(
+                          tooltip: s.refreshBurned,
+                          onPressed: _loadingBurned ? null : _loadTodayBurned,
+                          icon: _loadingBurned
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Total burned (basal + active)
+                    Text(_todayTotalBurnedKcal != null
+                        ? '${s.totalLabel}: ${_todayTotalBurnedKcal!.round()} ${s.kcalSuffix}'
+                        : s.burnedNotAvailable),
+                    const SizedBox(height: 8),
+                    _ProgressBar(
+                      value: _dailyLimit == 0 || _todayTotalBurnedKcal == null
+                          ? 0
+                          : (_todayTotalBurnedKcal! / _dailyLimit).clamp(0.0, 1.5),
+                      color: Colors.blueAccent,
+                    ),
+                    const SizedBox(height: 12),
+                    // Active burned only
+                    if (_todayActiveBurnedKcal != null) ...[
+                      Text('${s.activeLabel}: ${_todayActiveBurnedKcal!.round()} ${s.kcalSuffix}'),
+                      const SizedBox(height: 8),
+                      _ProgressBar(
+                        value: _dailyLimit == 0
+                            ? 0
+                            : (_todayActiveBurnedKcal! / _dailyLimit).clamp(0.0, 1.5),
+                        color: Colors.orangeAccent,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Builder(builder: (_) {
+                      final burned = _todayTotalBurnedKcal?.round() ?? 0;
+                      final net = todayKcal - burned; // positive -> surplus, negative -> deficit
+                      final isSurplus = net > 0;
+                      final label = isSurplus ? s.surplusLabel : (net < 0 ? s.deficitLabel : s.netKcalLabel);
+                      final display = net == 0 ? '0' : net.abs().toString();
+                      return Text('${s.netKcalLabel}: ${isSurplus ? '+' : (net < 0 ? '-' : '')}$display ${s.kcalSuffix} • $label');
+                    }),
+                  ],
+                ),
+              ),
+            ),
           const SizedBox(height: 16),
           // Health Connect status & actions
           if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
@@ -1240,11 +1542,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           icon: const Icon(Icons.lock_open),
                           label: Text(s.grantPermissions),
                         ),
-            if (_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailable || _hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired)
+                        if (_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailable || _hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired)
                           FilledButton.icon(
                             onPressed: () async { try { await _health.installHealthConnect(); } catch (e) { if (mounted) setState(() => _healthLastError = e.toString()); } },
                             icon: const Icon(Icons.download_rounded),
-              label: Text(_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired ? (s.updateHc) : (s.installHc)),
+                            label: Text(_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired ? (s.updateHc) : (s.installHc)),
                           ),
                       ],
                     ),
@@ -1298,10 +1600,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 if (meal['description'] != null)
                   Text(meal['description'], style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                // Show the AI result first, with copy button, above macro results
                 _FormattedResultCard(resultText: meal['result'] ?? ''),
                 const SizedBox(height: 8),
-                // Macro summary pills under the result
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -1322,7 +1622,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Inline actions: Edit and Delete
                 Row(
                   children: [
                     Expanded(
@@ -1384,7 +1683,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             });
                             await _saveHistory();
                             if (context.mounted) {
-                              Navigator.pop(ctx); // close the sheet
+                              Navigator.pop(ctx);
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
                             }
                           }
@@ -1428,7 +1727,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             });
                             await _saveHistory();
                             if (context.mounted) {
-                              Navigator.pop(ctx); // close the sheet
+                              Navigator.pop(ctx);
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).delete)));
                             }
                           }
@@ -1446,6 +1745,128 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
 }
+
+class _BarcodeScannerScreen extends StatefulWidget {
+  const _BarcodeScannerScreen();
+
+  @override
+  State<_BarcodeScannerScreen> createState() => _BarcodeScannerScreenState();
+}
+
+class _BarcodeScannerScreenState extends State<_BarcodeScannerScreen> {
+  bool _locked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Scanner le code-barres')),
+      body: MobileScanner(
+        onDetect: (capture) {
+          if (_locked) return;
+          final barcodes = capture.barcodes;
+          if (barcodes.isEmpty) return;
+          final value = barcodes.first.rawValue;
+          if (value != null && value.isNotEmpty) {
+            _locked = true;
+            Navigator.pop(context, value);
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _OffProduct {
+  final String? name;
+  final int? servingSizeGrams; // parsed from serving_size when possible
+  final int? packageSizeGrams; // parsed from quantity (full package)
+  final double? kcalPer100g;
+  final double? carbsPer100g;
+  final double? proteinPer100g;
+  final double? fatPer100g;
+
+  _OffProduct({this.name, this.servingSizeGrams, this.packageSizeGrams, this.kcalPer100g, this.carbsPer100g, this.proteinPer100g, this.fatPer100g});
+
+  static _OffProduct? fromJson(Map<String, dynamic> p) {
+    String? name = (p['product_name'] ?? p['generic_name']) as String?;
+    final nutriments = p['nutriments'] as Map<String, dynamic>?;
+    double? kcal100, carbs100, protein100, fat100;
+    if (nutriments != null) {
+      kcal100 = _toDouble(nutriments['energy-kcal_100g'] ?? nutriments['energy_100g']);
+      carbs100 = _toDouble(nutriments['carbohydrates_100g']);
+      protein100 = _toDouble(nutriments['proteins_100g']);
+      fat100 = _toDouble(nutriments['fat_100g']);
+    }
+    int? servingSizeGrams;
+    int? packageSizeGrams;
+    final ss = p['serving_size'] as String?;
+    if (ss != null) {
+      final m = RegExp(r'(\d{1,4})\s*(g|ml)', caseSensitive: false).firstMatch(ss);
+      if (m != null) {
+        servingSizeGrams = int.tryParse(m.group(1)!);
+      }
+    }
+    final qty = p['quantity'] as String?; // e.g., "330 ml" or "500 g"
+    if (qty != null) {
+      final m = RegExp(r'(\d{1,5})\s*(g|ml)', caseSensitive: false).firstMatch(qty);
+      if (m != null) {
+        packageSizeGrams = int.tryParse(m.group(1)!);
+      }
+    }
+    return _OffProduct(
+      name: name,
+      servingSizeGrams: servingSizeGrams,
+      packageSizeGrams: packageSizeGrams,
+      kcalPer100g: kcal100,
+      carbsPer100g: carbs100,
+      proteinPer100g: protein100,
+      fatPer100g: fat100,
+    );
+  }
+
+  static double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+
+  _ScaledNutrients scaleFor(int? grams) {
+    if (grams == null || grams <= 0) {
+      // fallback to full package if provided, else serving size, else assume 100g
+      final g = packageSizeGrams ?? servingSizeGrams ?? 100;
+      return _ScaledNutrients(
+        kcal: kcalPer100g != null ? kcalPer100g! * g / 100.0 : null,
+        carbs: carbsPer100g != null ? carbsPer100g! * g / 100.0 : null,
+        protein: proteinPer100g != null ? proteinPer100g! * g / 100.0 : null,
+        fat: fatPer100g != null ? fatPer100g! * g / 100.0 : null,
+      );
+    }
+    return _ScaledNutrients(
+      kcal: kcalPer100g != null ? kcalPer100g! * grams / 100.0 : null,
+      carbs: carbsPer100g != null ? carbsPer100g! * grams / 100.0 : null,
+      protein: proteinPer100g != null ? proteinPer100g! * grams / 100.0 : null,
+      fat: fatPer100g != null ? fatPer100g! * grams / 100.0 : null,
+    );
+  }
+
+  String prettyDescription(int? grams) {
+    final parts = <String>[];
+    if (name != null) parts.add(name!);
+    if (grams != null && grams > 0) parts.add('~${grams}g');
+    return parts.isEmpty ? 'Packaged food' : parts.join(' ');
+  }
+}
+
+class _ScaledNutrients {
+  final double? kcal;
+  final double? carbs;
+  final double? protein;
+  final double? fat;
+  _ScaledNutrients({this.kcal, this.carbs, this.protein, this.fat});
+}
+
+
+ 
 
 class _FormattedResultCard extends StatelessWidget {
   final String resultText;
@@ -1958,6 +2379,7 @@ class S {
   String get takePhoto => _code == 'fr' ? 'Prendre une photo' : 'Take Photo';
   String get pickImage => _code == 'fr' ? 'Choisir une image' : 'Pick Image';
   String get sendToAI => _code == 'fr' ? 'Envoyer à l’IA' : 'Send to AI';
+  String get scanBarcode => _code == 'fr' ? 'Scanner code-barres' : 'Scan barcode';
   String get sending => _code == 'fr' ? 'Envoi…' : 'Sending…';
   String get provideMsgOrImage => _code == 'fr' ? 'Veuillez fournir un message ou une image.' : 'Please provide a message or an image.';
   String get cameraNotSupported => _code == 'fr' ? 'La capture photo n’est pas prise en charge sur cette plateforme. Utilisez Choisir une image.' : 'Camera capture not supported on this platform. Use Pick Image instead.';
@@ -1971,6 +2393,22 @@ class S {
   String get dailyLimit => _code == 'fr' ? 'Limite quotidienne' : 'Daily limit';
   String get today => _code == 'fr' ? 'Aujourd’hui' : 'Today';
   String get yesterday => _code == 'fr' ? 'Hier' : 'Yesterday';
+
+  // Burned energy + net
+  String get burnedTodayTitle => _code == 'fr' ? 'Calories brûlées aujourd’hui' : 'Calories burned today';
+  String get refreshBurned => _code == 'fr' ? 'Rafraîchir' : 'Refresh';
+  String get burnedLabel => _code == 'fr' ? 'Brûlées' : 'Burned';
+  String get burnedNotAvailable => _code == 'fr' ? 'Données non disponibles (autorisez Health Connect)' : 'Data not available (grant Health permissions)';
+  String get surplusLabel => _code == 'fr' ? 'Excédent' : 'Surplus';
+  String get deficitLabel => _code == 'fr' ? 'Déficit' : 'Deficit';
+  String get netKcalLabel => _code == 'fr' ? 'Net' : 'Net';
+  String get totalLabel => _code == 'fr' ? 'Total' : 'Total';
+  String get activeLabel => _code == 'fr' ? 'Actives' : 'Active';
+  String get burnedHelp => _code == 'fr' ? 'Différence Total vs Actives' : 'Total vs Active difference';
+  String get burnedHelpText => _code == 'fr'
+      ? 'Total = Basal (métabolisme au repos) + Actives (activité). Actives n’inclut pas le métabolisme de base.'
+      : 'Total = Basal (resting metabolic) + Active (activity). Active excludes resting metabolic energy.';
+  String get ok => _code == 'fr' ? 'OK' : 'OK';
 
   String get result => _code == 'fr' ? 'Résultat' : 'Result';
   String get copy => _code == 'fr' ? 'Copier' : 'Copy';
