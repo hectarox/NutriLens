@@ -65,163 +65,44 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     ];
 
     const modelName = useFlash ? "gemini-2.5-flash" : "gemini-2.5-pro";
-    const compat = String(req.query.compat || '0') === '1';
     const model = genAI.getGenerativeModel({
       model: modelName,
       systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one",
       safetySettings: safetySettings,
     });
-
-    // Minimal compatibility path: direct generateContent without response schema/mime
-    if (compat) {
-      const altCfg = { ...generationConfig };
-      delete altCfg.responseMimeType;
-      delete altCfg.responseSchema;
-      const gcCompat = await model.generateContent({
-        contents: [
-          { role: 'user', parts: [ ...(fileData ? [{ fileData }] : []), { text: message || '' } ] },
-        ],
-        generationConfig: altCfg,
-      });
-      let compatText = '';
-      try { compatText = await gcCompat.response.text(); } catch (_) { compatText = ''; }
-      console.log(`[AI][${modelName}][compat] raw: ${compatText}`);
-      let compatData = null;
-      if (compatText && compatText.trim()) {
-        // Strip code fences if present
-        if (compatText.trim().startsWith('```')) {
-          compatText = compatText.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```$/,'').trim();
-        }
-        try { compatData = JSON.parse(compatText); } catch (_) { compatData = null; }
-      }
-      return res.json({ ok: true, data: compatData ?? compatText });
-    }
-
-  const chatSession = model.startChat({
-      generationConfig,
-      history,
-    });
-
-    const result = await chatSession.sendMessage(message || '');
-    const resp = result.response;
-    let text = '';
-    // Primary: try response.text()
-    try {
-      text = await resp.text();
-    } catch (_) {
-      text = '';
-    }
-    // Fallback: inspect candidates/parts for any textual content
-    if (!text || String(text).trim().length === 0) {
-      try {
-        const parts = (resp && resp.candidates && resp.candidates[0] && resp.candidates[0].content && resp.candidates[0].content.parts) || [];
-        for (const p of parts) {
-          if (p && typeof p.text === 'string' && p.text.trim()) {
-            text = p.text;
-            break;
-          }
-          if (p && p.functionCall) {
-            // As a last resort, expose functionCall as JSON
-            text = JSON.stringify(p.functionCall);
-            break;
-          }
-        }
-      } catch (_) { /* ignore */ }
-    }
-    // Log raw response before any cleanup
-    try {
-      console.log(`[AI][${modelName}] raw: ${text}`);
-    } catch (_) { /* ignore logging errors */ }
-
-    // If text is in Markdown code fences, strip them
-    if (text && text.trim().startsWith('```')) {
-      // Remove opening ```json or ``` and trailing ```
-      text = text.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```$/,'').trim();
-    }
-    // Try to parse JSON when appropriate
-    let data;
-    if (text && text.trim()) {
-      try {
-        data = JSON.parse(text);
-      } catch (_) {
-        data = null;
-      }
-    }
-    // If still no text and no data, attempt a fallback path for pro model
-    if ((!text || !text.trim()) && (!data || (typeof data === 'object' && Object.keys(data).length === 0))) {
-      if (modelName === 'gemini-2.5-pro') {
+    // Try the same chat path up to 10 times until we get non-empty content
+    for (let i = 0; i < 10; i++) {
+      const chatSession = model.startChat({ generationConfig, history });
+      const result = await chatSession.sendMessage(message || '');
+      const resp = result.response;
+      let text = '';
+      try { text = await resp.text(); } catch (_) { text = ''; }
+      if (!text || String(text).trim().length === 0) {
         try {
-          // Fallback #1: direct generateContent with same config
-          const gc = await model.generateContent({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  ...(fileData ? [{ fileData }] : []),
-                  { text: message || '' },
-                ],
-              },
-            ],
-            generationConfig,
-          });
-          let gcText = '';
-          try { gcText = await gc.response.text(); } catch (_) { gcText = ''; }
-          console.log(`[AI][${modelName}] fallback#1 raw: ${gcText}`);
-          if (gcText && gcText.trim().startsWith('```')) {
-            gcText = gcText.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```$/,'').trim();
+          const parts = (resp && resp.candidates && resp.candidates[0] && resp.candidates[0].content && resp.candidates[0].content.parts) || [];
+          for (const p of parts) {
+            if (p && typeof p.text === 'string' && p.text.trim()) { text = p.text; break; }
+            if (p && p.functionCall) { text = JSON.stringify(p.functionCall); break; }
           }
-          let gcData = null;
-          if (gcText && gcText.trim()) {
-            try { gcData = JSON.parse(gcText); } catch (_) { gcData = null; }
-          }
-          if ((gcText && gcText.trim()) || (gcData && Object.keys(gcData).length)) {
-            return res.json({ ok: true, data: gcData ?? gcText });
-          }
-        } catch (e) {
-          console.warn('[AI] fallback#1 error:', e);
-        }
-
-        try {
-          // Fallback #2: retry without forcing JSON schema/mime
-          const altModel = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one",
-            safetySettings,
-          });
-          const altCfg = { ...generationConfig };
-          delete altCfg.responseMimeType;
-          delete altCfg.responseSchema;
-          const gc2 = await altModel.generateContent({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  ...(fileData ? [{ fileData }] : []),
-                  { text: message || '' },
-                ],
-              },
-            ],
-            generationConfig: altCfg,
-          });
-          let gc2Text = '';
-          try { gc2Text = await gc2.response.text(); } catch (_) { gc2Text = ''; }
-          console.log(`[AI][${modelName}] fallback#2 raw: ${gc2Text}`);
-          let gc2Data = null;
-          if (gc2Text && gc2Text.trim()) {
-            try { gc2Data = JSON.parse(gc2Text); } catch (_) { gc2Data = null; }
-          }
-          if ((gc2Text && gc2Text.trim()) || (gc2Data && Object.keys(gc2Data).length)) {
-            return res.json({ ok: true, data: gc2Data ?? gc2Text });
-          }
-        } catch (e) {
-          console.warn('[AI] fallback#2 error:', e);
-        }
+        } catch (_) { /* ignore */ }
       }
-      console.warn('Model returned no content; candidates:', JSON.stringify(resp && resp.candidates ? resp.candidates : undefined));
-      return res.status(503).json({ ok: false, error: 'Empty response from model. You can retry or switch to flash.' });
+      // Log raw for each try
+      try { console.log(`[AI][${modelName}][try ${i+1}/10] raw: ${text}`); } catch (_) { }
+      // Cleanup and parse
+      if (text && text.trim().startsWith('```')) {
+        text = text.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```$/,'').trim();
+      }
+      let data = null;
+      if (text && text.trim()) {
+        try { data = JSON.parse(text); } catch (_) { data = null; }
+      }
+      if ((text && text.trim()) || (data && Object.keys(data).length)) {
+        return res.json({ ok: true, data: data ?? text });
+      }
     }
 
-    res.json({ ok: true, data: data ?? text });
+    console.warn('Model returned no content after 10 tries');
+    return res.status(503).json({ ok: false, error: 'Empty response from model after retries.' });
   } catch (error) {
     console.error(`Error with API key ${apiKey}:`, error);
     const status = (error && (error.status || (error.response && error.response.status))) || 0;
