@@ -37,8 +37,9 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
   const fileManager = new GoogleAIFileManager(apiKey);
 
   try {
-    const { file } = req;
-    const { message } = req.body || {};
+  const { file } = req;
+  const { message } = req.body || {};
+  const useFlash = String(req.query.flash || '0') === '1';
 
     if (!file && (!message || String(message).trim().length === 0)) {
       return res.status(400).json({ ok: false, error: 'No input provided. Please include a message and/or an image.' });
@@ -64,7 +65,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     ];
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-pro",
+      model: useFlash ? "gemini-2.5-flash" : "gemini-2.5-pro",
       systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one",
       safetySettings: safetySettings,
     });
@@ -76,6 +77,9 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
 
     const result = await chatSession.sendMessage(message || '');
     let text = await result.response.text();
+    if (!text || String(text).trim().length === 0) {
+      return res.status(503).json({ ok: false, error: 'Empty response from model. Please try again or switch to flash.' });
+    }
 
     // Try to parse JSON if the model respected responseMimeType
     let data;
@@ -94,7 +98,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
       if (attempt + 1 < apiKeys.length) {
         return handleRequestWithRetry(req, res, attempt + 1);
       }
-      return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
+      return res.status(503).json({ ok: false, error: 'AI is overloaded. You can retry with a faster, less precise model.' });
     }
     // Other errors: keep rotating keys until exhausted, then return friendly message
     if (attempt + 1 < apiKeys.length) {

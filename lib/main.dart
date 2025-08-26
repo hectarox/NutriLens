@@ -22,8 +22,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 class AppSettings extends ChangeNotifier {
   Locale? _locale;
   Locale? get locale => _locale;
+  bool _daltonian = false;
+  bool get daltonian => _daltonian;
 
   static const _prefsKey = 'app_locale'; // values: 'system', 'en', 'fr'
+  static const _prefsDaltonian = 'daltonian_mode';
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -34,6 +37,7 @@ class AppSettings extends ChangeNotifier {
       _locale = Locale(code);
       Intl.defaultLocale = code;
     }
+  _daltonian = prefs.getBool(_prefsDaltonian) ?? false;
   }
 
   Future<void> setLocale(Locale? value) async {
@@ -46,6 +50,13 @@ class AppSettings extends ChangeNotifier {
     } else {
       await prefs.setString(_prefsKey, value.languageCode);
     }
+  }
+
+  Future<void> setDaltonian(bool value) async {
+    _daltonian = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsDaltonian, value);
   }
 }
 
@@ -635,7 +646,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           }
         } catch (_) {}
         // Extract preferred fields if present
-        if (structured != null) {
+  if (structured != null) {
           mealName = structured["Nom de l'aliment"]?.toString();
         }
 
@@ -735,7 +746,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await _saveHistory();
 
         // Notify, reset composer, and show the result in History so users see success
-        if (mounted) {
+  if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Result saved to History')),
           );
@@ -823,19 +834,246 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             serverMsg = decoded['error'] as String;
           }
         } catch (_) {}
+        final is50x = response.statusCode == 503 || response.statusCode == 500;
         final msg = (serverMsg != null && serverMsg.isNotEmpty)
             ? serverMsg
-            : (response.statusCode == 503 || response.statusCode == 500)
-                ? 'Service is currently unavailable, please try again later.'
-                : 'Request failed (${response.statusCode})';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+            : (is50x
+                ? 'AI is overloaded (503). You can retry with a faster, less precise model for this request.'
+                : 'Request failed (${response.statusCode})');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              action: is50x
+                  ? SnackBarAction(
+                      label: 'Try flash',
+                      onPressed: () async {
+                        // Re-run with flash model hint
+                        await _sendMessageWithModel(useFlash: true);
+                      },
+                    )
+                  : null,
+            ),
+          );
+        }
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Service is currently unavailable, please try again later.')),
       );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _sendMessageWithModel({required bool useFlash}) async {
+    // Same as _sendMessage but adds a query to request the flash model for this call
+    if (_image == null && _controller.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please provide a message or an image.')),
+      );
+      return;
+    }
+    final uri = Uri.parse('${_baseUrl()}/data?flash=${useFlash ? '1' : '0'}');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['message'] = _controller.text;
+    request.headers['x-app-token'] = 'FromHectaroxWithLove';
+    if (authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
+    if (_image != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'image',
+        _image!.path,
+        contentType: MediaType.parse(lookupMimeType(_image!.path) ?? 'application/octet-stream'),
+      ));
+    }
+    if (mounted) setState(() => _loading = true);
+    try {
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+      if (response.statusCode == 200) {
+        // Parse response like normal
+        String pretty;
+        try {
+          final decoded = json.decode(responseBody);
+          if (decoded is Map && decoded['ok'] == true) {
+            final data = decoded['data'];
+            if (data is String) {
+              pretty = data;
+            } else {
+              pretty = const JsonEncoder.withIndent('  ').convert(data);
+            }
+          } else if (decoded is Map && decoded.containsKey('response')) {
+            pretty = decoded['response'].toString();
+          } else {
+            pretty = responseBody;
+          }
+        } catch (_) {
+          pretty = responseBody;
+        }
+
+        Map<String, dynamic>? structured;
+        int? kcal;
+        int? carbs;
+        int? protein;
+        int? fat;
+        String? mealName;
+        try {
+          final decoded = json.decode(responseBody);
+          if (decoded is Map && decoded['ok'] == true && decoded['data'] is Map) {
+            structured = Map<String, dynamic>.from(decoded['data'] as Map);
+          } else if (decoded is Map) {
+            structured = Map<String, dynamic>.from(decoded);
+          }
+        } catch (_) {}
+        if (structured != null) {
+          mealName = structured["Nom de l'aliment"]?.toString();
+        }
+        String textSource = structured != null ? jsonEncode(structured) : pretty;
+        final kcalMatch = RegExp(r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)', caseSensitive: false).firstMatch(textSource);
+        if (kcalMatch != null) {
+          final raw = kcalMatch.group(1)!.replaceAll(',', '.');
+          final d = double.tryParse(raw);
+          if (d != null) kcal = d.round();
+        } else if (structured != null) {
+          final calVal = structured['Calories'] ?? structured['kcal'] ?? structured['calories'];
+          if (calVal != null) {
+            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(calVal.toString());
+            if (numMatch != null) {
+              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              if (d != null) kcal = d.round();
+            }
+          }
+        }
+        final carbsMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(carb|glucid\w*)', caseSensitive: false).firstMatch(textSource);
+        if (carbsMatch != null) {
+          final raw = carbsMatch.group(1)!.replaceAll(',', '.');
+          final d = double.tryParse(raw);
+          if (d != null) carbs = d.round();
+        } else if (structured != null) {
+          final cVal = structured['Glucides'] ?? structured['carbs'] ?? structured['Carbs'];
+          if (cVal != null) {
+            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(cVal.toString());
+            if (numMatch != null) {
+              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              if (d != null) carbs = d.round();
+            }
+          }
+        }
+        final proteinMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(protein|prot\w*)', caseSensitive: false).firstMatch(textSource);
+        if (proteinMatch != null) {
+          final raw = proteinMatch.group(1)!.replaceAll(',', '.');
+          final d = double.tryParse(raw);
+          if (d != null) protein = d.round();
+        } else if (structured != null) {
+          final pVal = structured['Proteines'] ?? structured['protein'] ?? structured['Proteins'];
+          if (pVal != null) {
+            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(pVal.toString());
+            if (numMatch != null) {
+              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              if (d != null) protein = d.round();
+            }
+          }
+        }
+        final fatMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(fat|lipid\w*|gras)', caseSensitive: false).firstMatch(textSource);
+        if (fatMatch != null) {
+          final raw = fatMatch.group(1)!.replaceAll(',', '.');
+          final d = double.tryParse(raw);
+          if (d != null) fat = d.round();
+        } else if (structured != null) {
+          final fVal = structured['Lipides'] ?? structured['fat'] ?? structured['Fats'];
+          if (fVal != null) {
+            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(fVal.toString());
+            if (numMatch != null) {
+              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              if (d != null) fat = d.round();
+            }
+          }
+        }
+
+        final newMeal = {
+          'image': _image,
+          'imagePath': _image?.path,
+          'description': _controller.text,
+          'name': mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
+          'result': pretty,
+          'structured': structured,
+          'kcal': kcal,
+          'carbs': carbs,
+          'protein': protein,
+          'fat': fat,
+          'time': DateTime.now(),
+          'hcWritten': false,
+        };
+        setState(() {
+          _resultText = pretty;
+          _history.add(newMeal);
+          _pruneHistory();
+        });
+        await _saveHistory();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Result saved to History')),
+          );
+          setState(() {
+            _image = null;
+            _controller.clear();
+          });
+          _tabController.animateTo(0);
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (mounted) _showMealDetails(newMeal);
+          });
+        }
+        // Optional write to Health Connect
+        try {
+          await _ensureHealthConfigured();
+          if (mounted && (kcal != null || carbs != null || protein != null || fat != null)) {
+            if (!kIsWeb && Platform.isAndroid) {
+              final status = await _health.getHealthConnectSdkStatus();
+              if (mounted) setState(() => _hcSdkStatus = status);
+              if (status != HealthConnectSdkStatus.sdkAvailable) return;
+            }
+            final ok = await _health.requestAuthorization(
+              [HealthDataType.NUTRITION],
+              permissions: [HealthDataAccess.READ_WRITE],
+            );
+            if (ok) {
+              final start = DateTime.now();
+              final end = start.add(const Duration(minutes: 1));
+              newMeal['hcStart'] = start;
+              newMeal['hcEnd'] = end;
+              final written = await _health.writeMeal(
+                mealType: MealType.UNKNOWN,
+                startTime: start,
+                endTime: end,
+                caloriesConsumed: kcal?.toDouble(),
+                carbohydrates: carbs?.toDouble(),
+                protein: protein?.toDouble(),
+                fatTotal: fat?.toDouble(),
+                name: mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
+              );
+              if (mounted) {
+                setState(() => _healthAuthorized = true);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(written ? S.of(context).hcWriteOk : S.of(context).hcWriteFail)),
+                );
+                if (written) {
+                  setState(() { newMeal['hcWritten'] = true; });
+                  await _saveHistory();
+                } else {
+                  setState(() => _healthLastError = 'writeMeal returned false');
+                }
+              }
+            }
+          }
+        } catch (e) {
+          if (mounted) setState(() => _healthLastError = e.toString());
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Flash retry failed')));
+      }
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Flash retry failed')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1083,6 +1321,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 onChanged: (_) {
                   appSettings.setLocale(const Locale('fr'));
                   Navigator.pop(ctx);
+                },
+              ),
+              const Divider(),
+              SwitchListTile(
+                value: appSettings.daltonian,
+                title: Text(s.daltonianMode),
+                subtitle: Text(s.daltonianModeHint),
+                onChanged: (v) async {
+                  await appSettings.setDaltonian(v);
+                  if (mounted) Navigator.pop(ctx);
                 },
               ),
               const Divider(),
@@ -2057,15 +2305,18 @@ class _ExpandableDaySectionState extends State<_ExpandableDaySection> {
                   ]),
                 ),
                 if (widget.totalCarbs != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.amber.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                    child: Row(children: [
-                      Icon(Icons.grain, size: 16, color: Theme.of(context).brightness == Brightness.light ? Colors.orange : Colors.amber),
-                      const SizedBox(width: 6),
-                      Text('${widget.totalCarbs} ${s.carbsSuffix}', style: TextStyle(color: Theme.of(context).brightness == Brightness.light ? Colors.orange : Colors.amber)),
-                    ]),
-                  ),
+                  Builder(builder: (ctx) {
+                    final c = _carbsColor(ctx);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: c.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                      child: Row(children: [
+                        Icon(Icons.grain, size: 16, color: c),
+                        const SizedBox(width: 6),
+                        Text('${widget.totalCarbs} ${s.carbsSuffix}', style: TextStyle(color: c)),
+                      ]),
+                    );
+                  }),
                 if (widget.totalProtein != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2164,11 +2415,11 @@ class _HistoryMealCard extends StatelessWidget {
                           ),
                         if (carbs != null)
                           const SizedBox(height: 4),
-                        if (carbs != null)
+            if (carbs != null)
                           _Pill(
                             icon: Icons.grain,
                             label: '$carbs ${s.carbsSuffix}',
-                            color: Theme.of(context).brightness == Brightness.light ? Colors.orange : Colors.amber,
+              color: _carbsColor(context),
                           ),
                         if (protein != null)
                           _Pill(
@@ -2190,85 +2441,83 @@ class _HistoryMealCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                tooltip: S.of(context).edit,
-                onPressed: () async {
-                  final updated = await showDialog<Map<String, dynamic>>(
-                    context: context,
-                    builder: (ctx) {
-                      final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
-                      final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
-                      final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
-                      final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
-                      final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
-                      return AlertDialog(
-                        title: Text(S.of(context).editMeal),
-                        content: SingleChildScrollView(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
-                              const SizedBox(height: 8),
-                              TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
-                              const SizedBox(height: 8),
-                              TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
-                              const SizedBox(height: 8),
-                              TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
-                              const SizedBox(height: 8),
-                              TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
-                            ],
+              PopupMenuButton<String>(
+                onSelected: (val) async {
+                  if (val == 'edit') {
+                    final updated = await showDialog<Map<String, dynamic>>(
+                      context: context,
+                      builder: (ctx) {
+                        final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
+                        final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
+                        final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
+                        final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
+                        final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
+                        return AlertDialog(
+                          title: Text(S.of(context).editMeal),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                                const SizedBox(height: 8),
+                                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                              ],
+                            ),
                           ),
-                        ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
+                            FilledButton(
+                              onPressed: () {
+                                Navigator.pop(ctx, {
+                                  'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
+                                  'kcal': int.tryParse(kcalCtrl.text.trim()),
+                                  'carbs': int.tryParse(carbsCtrl.text.trim()),
+                                  'protein': int.tryParse(proteinCtrl.text.trim()),
+                                  'fat': int.tryParse(fatCtrl.text.trim()),
+                                });
+                              },
+                              child: Text(S.of(context).save),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                    if (updated != null) {
+                      meal['name'] = updated['name'] ?? meal['name'];
+                      meal['kcal'] = updated['kcal'] ?? meal['kcal'];
+                      meal['carbs'] = updated['carbs'] ?? meal['carbs'];
+                      meal['protein'] = updated['protein'] ?? meal['protein'];
+                      meal['fat'] = updated['fat'] ?? meal['fat'];
+                      // ignore: use_build_context_synchronously
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
+                      final state = context.findAncestorStateOfType<_MainScreenState>();
+                      await state?._saveHistory();
+                    }
+                  } else if (val == 'delete') {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(S.of(context).deleteItem),
+                        content: Text(S.of(context).deleteConfirm),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
-                          FilledButton(
-                            onPressed: () {
-                              Navigator.pop(ctx, {
-                                'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-                                'kcal': int.tryParse(kcalCtrl.text.trim()),
-                                'carbs': int.tryParse(carbsCtrl.text.trim()),
-                                'protein': int.tryParse(proteinCtrl.text.trim()),
-                                'fat': int.tryParse(fatCtrl.text.trim()),
-                              });
-                            },
-                            child: Text(S.of(context).save),
-                          ),
+                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.of(context).cancel)),
+                          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(S.of(context).delete)),
                         ],
-                      );
-                    },
-                  );
-                  if (updated != null) {
-                    meal['name'] = updated['name'] ?? meal['name'];
-                    meal['kcal'] = updated['kcal'] ?? meal['kcal'];
-                    meal['carbs'] = updated['carbs'] ?? meal['carbs'];
-                    meal['protein'] = updated['protein'] ?? meal['protein'];
-                    meal['fat'] = updated['fat'] ?? meal['fat'];
-                    // ignore: use_build_context_synchronously
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
-                    // persist changes
-                    final state = context.findAncestorStateOfType<_MainScreenState>();
-                    await state?._saveHistory();
+                      ),
+                    );
+                    if (ok == true) onDelete();
                   }
                 },
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                tooltip: S.of(context).delete,
-                onPressed: () async {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: Text(S.of(context).deleteItem),
-                      content: Text(S.of(context).deleteConfirm),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.of(context).cancel)),
-                        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(S.of(context).delete)),
-                      ],
-                    ),
-                  );
-                  if (ok == true) onDelete();
-                },
-                icon: const Icon(Icons.delete_outline),
+                itemBuilder: (ctx) => [
+                  PopupMenuItem(value: 'edit', child: ListTile(leading: const Icon(Icons.edit_outlined), title: Text(S.of(context).edit))),
+                  PopupMenuItem(value: 'delete', child: ListTile(leading: const Icon(Icons.delete_outline), title: Text(S.of(context).delete))),
+                ],
               ),
             ],
             ),
@@ -2277,6 +2526,14 @@ class _HistoryMealCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _carbsColor(BuildContext context) {
+  // In light mode, use a distinct blue for carbs; in dark mode keep amber for legibility.
+  // If daltonian mode is enabled, use high-contrast teal.
+  final isLight = Theme.of(context).brightness == Brightness.light;
+  if (appSettings.daltonian) return Colors.teal;
+  return isLight ? Colors.blue : Colors.amber;
 }
 
 class _ProgressBar extends StatelessWidget {
@@ -2324,19 +2581,37 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-          Text(label, style: TextStyle(color: color, fontSize: 12)),
-        ],
+    // Cap the pill width and ellipsize text to avoid bleeding over the card edge on low-DPI screens
+    final w = MediaQuery.of(context).size.width;
+    final maxW = w < 360
+        ? 110.0
+        : w < 420
+            ? 140.0
+            : 180.0;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxW),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(color: color, fontSize: 12),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2370,6 +2645,8 @@ class S {
   String get updateHc => _code == 'fr' ? 'Mettre à jour Health Connect' : 'Update Health Connect';
   String get settings => _code == 'fr' ? 'Paramètres' : 'Settings';
   String get systemLanguage => _code == 'fr' ? 'Langue du système' : 'System language';
+  String get daltonianMode => _code == 'fr' ? 'Mode daltonien' : 'Colorblind-friendly mode';
+  String get daltonianModeHint => _code == 'fr' ? 'Améliore les contrastes et couleurs pour les daltoniens' : 'Improves contrasts and colors for color vision deficiencies';
   String get tabHistory => _code == 'fr' ? 'Historique' : 'History';
   String get tabMain => _code == 'fr' ? 'Principal' : 'Main';
   String get tabDaily => _code == 'fr' ? 'Quotidien' : 'Daily';
