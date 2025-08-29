@@ -38,7 +38,10 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
 
   try {
   const { file } = req;
-  const { message } = req.body || {};
+  const { message, lang } = req.body || {};
+  // Determine locale: explicit body.lang wins, then Accept-Language header, else English
+  const acceptLang = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
+  const locale = (lang && typeof lang === 'string' && lang.trim()) ? lang.trim().toLowerCase() : (acceptLang || 'en');
   const useFlash = String(req.query.flash || '0') === '1';
 
     if (!file && (!message || String(message).trim().length === 0)) {
@@ -67,7 +70,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     const modelName = useFlash ? "gemini-2.5-flash" : "gemini-2.5-pro";
     const model = genAI.getGenerativeModel({
       model: modelName,
-      systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one",
+      systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one. Reply in: " + (locale === 'fr' ? 'french' : 'english'),
       safetySettings: safetySettings,
     });
     // Try the same chat path up to 10 times until we get non-empty content
@@ -167,7 +170,7 @@ const generationConfig = {
       "Nom de l'aliment": {
         type: "string"
       },
-      "Poids (g)": {
+  "Poids (g)": {
         type: "string"
       },
       Ingredients: {

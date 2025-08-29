@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -12,10 +13,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:health/health.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:file_picker/file_picker.dart';
 // permission_handler not required for nutrition; we rely on health plugin's auth flow
 
 // Simple app settings with locale persistence
@@ -438,6 +441,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   double? _todayTotalBurnedKcal;
   double? _todayActiveBurnedKcal;
   bool _loadingBurned = false;
+  // When set, newly added foods can be appended to this grouped meal until finished
+  Map<String, dynamic>? _pendingMealGroup;
 
   @override
   void initState() {
@@ -495,6 +500,29 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               final t = DateTime.tryParse(m['hcEnd']);
               if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
             }
+            // Groups: normalize children
+            if (m['children'] is List) {
+              final List<Map<String, dynamic>> kids = [];
+              for (final c in (m['children'] as List)) {
+                if (c is Map) {
+                  final cm = Map<String, dynamic>.from(c);
+                  if (cm['time'] is String) {
+                    final t = DateTime.tryParse(cm['time']);
+                    if (t != null) cm['time'] = t;
+                  }
+                  if (cm['hcStart'] is String) {
+                    final t = DateTime.tryParse(cm['hcStart']);
+                    if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                  }
+                  if (cm['hcEnd'] is String) {
+                    final t = DateTime.tryParse(cm['hcEnd']);
+                    if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                  }
+                  kids.add(cm);
+                }
+              }
+              m['children'] = kids;
+            }
             loaded.add(m);
           }
         }
@@ -511,23 +539,27 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _saveHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final serializable = _history.map((m) {
+    Map<String, dynamic> toJson(Map<String, dynamic> x) {
       return {
-        'imagePath': (m['imagePath'] as String?) ?? (m['image'] is XFile ? (m['image'] as XFile).path : null),
-        'description': m['description'],
-        'name': m['name'],
-        'result': m['result'],
-        'structured': m['structured'],
-        'kcal': m['kcal'],
-        'carbs': m['carbs'],
-        'protein': m['protein'],
-        'fat': m['fat'],
-        'time': (m['time'] is DateTime) ? (m['time'] as DateTime).toIso8601String() : m['time'],
-  'hcStart': (m['hcStart'] is DateTime) ? (m['hcStart'] as DateTime).toIso8601String() : m['hcStart'],
-  'hcEnd': (m['hcEnd'] is DateTime) ? (m['hcEnd'] as DateTime).toIso8601String() : m['hcEnd'],
-  'hcWritten': m['hcWritten'] == true,
+        'isGroup': x['isGroup'] == true,
+        'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
+        'description': x['description'],
+        'name': x['name'],
+        'result': x['result'],
+        'structured': x['structured'],
+  'grams': x['grams'],
+        'kcal': x['kcal'],
+        'carbs': x['carbs'],
+        'protein': x['protein'],
+        'fat': x['fat'],
+        'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
+        'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
+        'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
+        'hcWritten': x['hcWritten'] == true,
+        if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
       };
-    }).toList();
+    }
+    final serializable = _history.map((m) => toJson(m)).toList();
     await prefs.setString('history_json', json.encode(serializable));
   }
 
@@ -593,6 +625,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       ..fields['message'] = _controller.text;
     // Attach shared-secret token required by server
     request.headers['x-app-token'] = 'FromHectaroxWithLove';
+    // Provide locale hint to backend for consistent language
+    final _lang = S.of(context).locale.languageCode;
+    request.headers['Accept-Language'] = _lang;
+    request.fields['lang'] = _lang;
     if (authState.token != null) {
       request.headers['Authorization'] = 'Bearer ${authState.token}';
     }
@@ -647,7 +683,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         } catch (_) {}
         // Extract preferred fields if present
   if (structured != null) {
-          mealName = structured["Nom de l'aliment"]?.toString();
+          // Localize/normalize structured keys for the current UI locale
+          structured = _localizedStructured(structured);
+          mealName = structured['Name']?.toString() ?? structured["Nom de l'aliment"]?.toString() ?? structured['name']?.toString();
         }
 
         // Fallback: attempt to parse calories & carbs/protein/fat from any text
@@ -729,7 +767,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'imagePath': _image?.path,
           'description': _controller.text,
           'name': mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
-          'result': pretty,
+          // Prefer pretty-printed, locale-normalized JSON when available
+          'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
           'structured': structured,
           'kcal': kcal,
           'carbs': carbs,
@@ -744,6 +783,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _pruneHistory();
         });
     await _saveHistory();
+
+        // If user is building a meal, append this item into the active group
+        if (_pendingMealGroup != null) {
+          _appendToGroup(_pendingMealGroup!, newMeal);
+          await _saveHistory();
+        }
 
         // Notify, reset composer, and show the result in History so users see success
   if (mounted) {
@@ -899,6 +944,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final request = http.MultipartRequest('POST', uri)
       ..fields['message'] = _controller.text;
     request.headers['x-app-token'] = 'FromHectaroxWithLove';
+    final _lang = S.of(context).locale.languageCode;
+    request.headers['Accept-Language'] = _lang;
+    request.fields['lang'] = _lang;
     if (authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
     if (_image != null) {
       request.files.add(await http.MultipartFile.fromPath(
@@ -932,7 +980,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           pretty = responseBody;
         }
 
-        Map<String, dynamic>? structured;
+  Map<String, dynamic>? structured;
         int? kcal;
         int? carbs;
         int? protein;
@@ -953,7 +1001,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           }
         } catch (_) {}
         if (structured != null) {
-          mealName = structured["Nom de l'aliment"]?.toString();
+          structured = _localizedStructured(structured);
+          mealName = structured['Name']?.toString() ?? structured["Nom de l'aliment"]?.toString() ?? structured['name']?.toString();
         }
         final textSource = structured != null ? jsonEncode(structured) : pretty;
         final kcalMatch = RegExp(r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)', caseSensitive: false).firstMatch(textSource);
@@ -1022,7 +1071,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'imagePath': _image?.path,
           'description': _controller.text,
           'name': mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
-          'result': pretty,
+          'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
           'structured': structured,
           'kcal': kcal,
           'carbs': carbs,
@@ -1037,6 +1086,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _pruneHistory();
         });
         await _saveHistory();
+
+        // If user is building a meal, append this item into the active group
+        if (_pendingMealGroup != null) {
+          _appendToGroup(_pendingMealGroup!, newMeal);
+          await _saveHistory();
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1324,6 +1379,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         title: Text(s.appTitle),
+        leading: IconButton(
+          tooltip: S.of(context).info,
+          icon: const Icon(Icons.info_outline),
+          onPressed: _openInfo,
+        ),
         actions: [
           IconButton(
             tooltip: s.settings,
@@ -1411,6 +1471,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ),
               const Divider(),
               ListTile(
+                leading: const Icon(Icons.upload_file),
+                title: Text(s.exportHistory),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _exportHistory();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: Text(s.importHistory),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _importHistory();
+                },
+              ),
+              const Divider(),
+              ListTile(
                 leading: const Icon(Icons.logout),
                 title: const Text('Log out'),
                 onTap: () async {
@@ -1425,6 +1502,186 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 },
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _exportHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('history_json') ?? json.encode(_history.map((m) {
+        Map<String, dynamic> toJson(Map<String, dynamic> x) {
+          return {
+            'isGroup': x['isGroup'] == true,
+            'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
+            'description': x['description'],
+            'name': x['name'],
+            'result': x['result'],
+            'structured': x['structured'],
+            'grams': x['grams'],
+            'kcal': x['kcal'],
+            'carbs': x['carbs'],
+            'protein': x['protein'],
+            'fat': x['fat'],
+            'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
+            'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
+            'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
+            'hcWritten': x['hcWritten'] == true,
+            if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
+          };
+        }
+        return toJson(Map<String, dynamic>.from(m));
+      }).toList());
+
+      final bytes = utf8.encode(raw);
+      final filename = 'nutrilens-history-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.json';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export history',
+        fileName: filename,
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: Uint8List.fromList(bytes),
+      );
+      if (!mounted) return;
+      if (path == null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportCanceled)));
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportSuccess)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportFailed)));
+    }
+  }
+
+  Future<void> _importHistory() async {
+    final s = S.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.importHistory),
+        content: Text(s.confirmImportReplace),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(MaterialLocalizations.of(ctx).okButtonLabel)),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        dialogTitle: 'Import history',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (res == null || res.files.isEmpty) return;
+      final file = res.files.first;
+      final data = file.bytes ?? await File(file.path!).readAsBytes();
+      final decoded = json.decode(utf8.decode(data));
+      if (decoded is! List) throw Exception('Invalid history');
+
+      final List<Map<String, dynamic>> loaded = [];
+      for (final e in decoded) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          if (m['time'] is String) {
+            final t = DateTime.tryParse(m['time']);
+            if (t != null) m['time'] = t;
+          }
+          if (m['hcStart'] is String) {
+            final t = DateTime.tryParse(m['hcStart']);
+            if (t != null) m['hcStart'] = t; else m.remove('hcStart');
+          }
+          if (m['hcEnd'] is String) {
+            final t = DateTime.tryParse(m['hcEnd']);
+            if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
+          }
+          if (m['children'] is List) {
+            final List<Map<String, dynamic>> kids = [];
+            for (final c in (m['children'] as List)) {
+              if (c is Map) {
+                final cm = Map<String, dynamic>.from(c);
+                if (cm['time'] is String) {
+                  final t = DateTime.tryParse(cm['time']);
+                  if (t != null) cm['time'] = t;
+                }
+                if (cm['hcStart'] is String) {
+                  final t = DateTime.tryParse(cm['hcStart']);
+                  if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                }
+                if (cm['hcEnd'] is String) {
+                  final t = DateTime.tryParse(cm['hcEnd']);
+                  if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                }
+                kids.add(cm);
+              }
+            }
+            m['children'] = kids;
+          }
+          loaded.add(m);
+        }
+      }
+      setState(() {
+        _history
+          ..clear()
+          ..addAll(loaded);
+      });
+      await _saveHistory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).importSuccess)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).importFailed)));
+    }
+  }
+
+  Future<void> _openInfo() async {
+    final s = S.of(context);
+    PackageInfo info;
+    try {
+      info = await PackageInfo.fromPlatform();
+    } catch (_) {
+      info = PackageInfo(appName: 'App', packageName: 'app', version: 'unknown', buildNumber: '-', buildSignature: '', installerStore: null);
+    }
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(s.about, style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                Text(s.versionBuild(info.version, info.buildNumber)),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.discord),
+                  title: Text(s.joinDiscord),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () async {
+                    final uri = Uri.parse('https://discord.gg/8bDDqbvr8K');
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  },
+                ),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.github),
+                  title: Text(s.openGithubIssue),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () async {
+                    final uri = Uri.parse('https://github.com/hectarox/NutriLens/issues');
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -1482,6 +1739,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 await _saveHistory();
               },
               onTap: () => _showMealDetails(meal),
+              onDrop: (source) => _mergeMeals(source, meal),
             );
           }).toList(),
         );
@@ -1495,6 +1753,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (_pendingMealGroup != null)
+          Card(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                children: [
+                  const Icon(Icons.restaurant, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(s.mealBuilderActive)),
+                  TextButton.icon(onPressed: _finishPendingMeal, icon: const Icon(Icons.check), label: Text(s.finishMeal)),
+                ],
+              ),
+            ),
+          ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
@@ -1514,6 +1787,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   spacing: 12,
                   runSpacing: 8,
                   children: [
+                    OutlinedButton.icon(
+                      onPressed: _addManualFood,
+                      icon: const Icon(Icons.add),
+                      label: Text(s.addManual),
+                    ),
                     if (canUseCamera)
                       FilledButton.icon(
                         onPressed: _scanBarcode,
@@ -1577,18 +1855,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final grams = qty?.trim().isEmpty == true ? product.servingSizeGrams : int.tryParse(qty ?? '');
     // Build meal from OFF nutrients (per 100g scaled or per serving)
     final scaled = product.scaleFor(grams);
+    final localizedStructured = _localizedStructured({
+      'Name': product.name ?? '-',
+      'Calories': '${scaled.kcal?.toStringAsFixed(0) ?? '-'} kcal',
+      'Carbs': '${scaled.carbs?.toStringAsFixed(0) ?? '-'} g',
+      'Proteins': '${scaled.protein?.toStringAsFixed(0) ?? '-'} g',
+      'Fats': '${scaled.fat?.toStringAsFixed(0) ?? '-'} g',
+  if (grams != null) 'Weight (g)': '${grams} g',
+    });
     final newMeal = {
       'image': null,
       'imagePath': null,
       'description': product.name ?? 'Packaged food',
       'name': product.name,
-      'result': product.prettyDescription(grams),
-      'structured': {
-        'Calories': '${scaled.kcal?.toStringAsFixed(0) ?? '-'} kcal',
-        'Carbs': '${scaled.carbs?.toStringAsFixed(0) ?? '-'} g',
-        'Proteins': '${scaled.protein?.toStringAsFixed(0) ?? '-'} g',
-        'Fats': '${scaled.fat?.toStringAsFixed(0) ?? '-'} g',
-      },
+      'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
+      'structured': localizedStructured,
+  'grams': grams,
       'kcal': scaled.kcal?.round(),
       'carbs': scaled.carbs?.round(),
       'protein': scaled.protein?.round(),
@@ -1601,11 +1883,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _pruneHistory();
     });
     await _saveHistory();
+    if (_pendingMealGroup != null) {
+      _appendToGroup(_pendingMealGroup!, newMeal);
+      await _saveHistory();
+    }
     if (mounted) {
       _tabController.animateTo(0);
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted) _showMealDetails(newMeal);
       });
+  _maybeOfferAddAnother(newMeal);
     }
     // Optionally, write to Health Connect if desired
     try {
@@ -1775,15 +2062,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       ],
                     ),
                     const SizedBox(height: 8),
-                    // Total burned (basal + active)
+                    // Total burned (basal + active) — compare to today's consumed kcal instead of daily limit
                     Text(_todayTotalBurnedKcal != null
                         ? '${s.totalLabel}: ${_todayTotalBurnedKcal!.round()} ${s.kcalSuffix}'
                         : s.burnedNotAvailable),
                     const SizedBox(height: 8),
                     _ProgressBar(
-                      value: _dailyLimit == 0 || _todayTotalBurnedKcal == null
+                      value: todayKcal <= 0 || _todayTotalBurnedKcal == null
                           ? 0
-                          : (_todayTotalBurnedKcal! / _dailyLimit).clamp(0.0, 1.5),
+                          : (_todayTotalBurnedKcal! / todayKcal).clamp(0.0, 1.5),
                       color: Colors.blueAccent,
                     ),
                     const SizedBox(height: 12),
@@ -1792,9 +2079,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       Text('${s.activeLabel}: ${_todayActiveBurnedKcal!.round()} ${s.kcalSuffix}'),
                       const SizedBox(height: 8),
                       _ProgressBar(
-                        value: _dailyLimit == 0
+                        value: todayKcal <= 0
                             ? 0
-                            : (_todayActiveBurnedKcal! / _dailyLimit).clamp(0.0, 1.5),
+                            : (_todayActiveBurnedKcal! / todayKcal).clamp(0.0, 1.5),
                         color: Colors.orangeAccent,
                       ),
                       const SizedBox(height: 12),
@@ -1912,8 +2199,33 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text((meal['name'] as String?)?.isNotEmpty == true ? meal['name'] : S.of(context).mealDetails,
-                    style: Theme.of(context).textTheme.titleLarge),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        (meal['name'] as String?)?.isNotEmpty == true ? meal['name'] : (meal['isGroup'] == true ? S.of(context).meal : S.of(context).mealDetails),
+                        style: Theme.of(context).textTheme.titleLarge,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Builder(builder: (ctx) {
+                      final dt = _asDateTime(meal['time']);
+                      if (dt == null) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _formatTimeShort(dt),
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 if (meal['image'] != null)
                   ClipRRect(
@@ -1925,6 +2237,77 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   Text(meal['description'], style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _FormattedResultCard(resultText: meal['result'] ?? ''),
+                if (meal['isGroup'] == true && meal['children'] is List) ...[
+                  const SizedBox(height: 8),
+                  StatefulBuilder(builder: (localCtx, setLocal) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(S.of(context).itemsInMeal((meal['children'] as List).length), style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        ...((meal['children'] as List).cast<Map<String, dynamic>>()).map((child) {
+                          final name = child['name'] ?? child['description'] ?? S.of(context).noDescription;
+                          final kcal = child['kcal'] as int?;
+                          final dt = _asDateTime(child['time']);
+                          String? subtitle;
+                          if (dt != null && kcal != null) {
+                            subtitle = '${_formatTimeShort(dt)} • ${kcal} ${S.of(context).kcalSuffix}';
+                          } else if (dt != null) {
+                            subtitle = _formatTimeShort(dt);
+                          } else if (kcal != null) {
+                            subtitle = '${kcal} ${S.of(context).kcalSuffix}';
+                          }
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.fastfood),
+                            title: Text(name),
+                            subtitle: subtitle != null ? Text(subtitle) : null,
+                            trailing: IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              tooltip: S.of(context).remove,
+                              onPressed: () async {
+                                setState(() {
+                                  (meal['children'] as List).remove(child);
+                                  final restored = Map<String, dynamic>.from(child);
+                                  restored.remove('isGroup');
+                                  restored.remove('children');
+                                  restored['time'] = (restored['time'] is DateTime || restored['time'] is String)
+                                      ? restored['time']
+                                      : DateTime.now();
+                                  _history.add(restored);
+                                  _recomputeGroupSums(meal);
+                                });
+                                setLocal(() {});
+                                await _saveHistory();
+                                if ((meal['children'] as List).isEmpty && context.mounted) {
+                                  final idx = _history.indexOf(meal);
+                                  if (idx >= 0) {
+                                    setState(() {
+                                      _history.removeAt(idx);
+                                      if (identical(_pendingMealGroup, meal)) _pendingMealGroup = null;
+                                    });
+                                    await _saveHistory();
+                                  }
+                                  Navigator.pop(ctx);
+                                }
+                              },
+                            ),
+                          );
+                        }),
+                      ],
+                    );
+                  }),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      _ungroupMeal(meal);
+                      await _saveHistory();
+                      if (context.mounted) Navigator.pop(ctx);
+                    },
+                    icon: const Icon(Icons.call_split),
+                    label: Text(S.of(context).ungroup),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -1950,6 +2333,28 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
+                        icon: const Icon(Icons.add_circle_outline),
+                        label: Text(S.of(context).addAnother),
+                        onPressed: () async {
+                          setState(() {
+                            if (meal['isGroup'] == true) {
+                              _pendingMealGroup = meal;
+                            } else {
+                              _startMealGroupWith(meal);
+                            }
+                          });
+                          await _saveHistory();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealBuilderActive)));
+                            Navigator.pop(ctx);
+                            _tabController.animateTo(1); // Go to Main tab to add more
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
                         icon: const Icon(Icons.edit_outlined),
                         label: Text(S.of(context).editMeal),
                         onPressed: () async {
@@ -1961,45 +2366,102 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
                               final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
                               final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
-                              return AlertDialog(
-                                title: Text(S.of(context).editMeal),
-                                content: SingleChildScrollView(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
-                                      const SizedBox(height: 8),
-                                      TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
-                                      const SizedBox(height: 8),
-                                      TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
-                                      const SizedBox(height: 8),
-                                      TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
-                                      const SizedBox(height: 8),
-                                      TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
-                                    ],
+                              final gramsCtrl = TextEditingController(text: meal['grams']?.toString() ?? '');
+                              bool linkValues = true;
+                              final oldK = meal['kcal'] as int?;
+                              final oldC = meal['carbs'] as int?;
+                              final oldP = meal['protein'] as int?;
+                              final oldF = meal['fat'] as int?;
+                              final oldG = meal['grams'] as int?;
+                              return StatefulBuilder(
+                                builder: (context, setSB) => AlertDialog(
+                                  title: Text(S.of(context).editMeal),
+                                  content: SingleChildScrollView(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                                        const SizedBox(height: 8),
+                                        TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                                        CheckboxListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          value: linkValues,
+                                          onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                          title: Text(S.of(context).linkValues),
+                                        ),
+                                        TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                                        const SizedBox(height: 8),
+                                        TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                                        const SizedBox(height: 8),
+                                        TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                                        const SizedBox(height: 8),
+                                        TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                                      ],
+                                    ),
                                   ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () {
+                                        setSB(() {
+                                          nameCtrl.text = meal['name']?.toString() ?? '';
+                                          gramsCtrl.text = (meal['grams']?.toString() ?? '');
+                                          kcalCtrl.text = (meal['kcal']?.toString() ?? '');
+                                          carbsCtrl.text = (meal['carbs']?.toString() ?? '');
+                                          proteinCtrl.text = (meal['protein']?.toString() ?? '');
+                                          fatCtrl.text = (meal['fat']?.toString() ?? '');
+                                        });
+                                      },
+                                      child: Text(S.of(context).restoreDefaults),
+                                    ),
+                                    TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(S.of(context).cancel)),
+                                    FilledButton(
+                                      onPressed: () {
+                                        int? newG = int.tryParse(gramsCtrl.text.trim());
+                                        int? newK = int.tryParse(kcalCtrl.text.trim());
+                                        int? newC = int.tryParse(carbsCtrl.text.trim());
+                                        int? newP = int.tryParse(proteinCtrl.text.trim());
+                                        int? newF = int.tryParse(fatCtrl.text.trim());
+                                        if (linkValues) {
+                                          double? factor;
+                                          if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                            factor = newC / oldC;
+                                          } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                            factor = newP / oldP;
+                                          } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                            factor = newF / oldF;
+                                          } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                            factor = newK / oldK;
+                                          } else if (oldG != null && newG != null && oldG > 0 && newG != oldG) {
+                                            factor = newG / oldG;
+                                          }
+                                          if (factor != null) {
+                                            if (newG == null || newG == oldG) newG = oldG != null ? (oldG * factor).round() : null;
+                                            if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
+                                            if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
+                                            if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
+                                            if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                          }
+                                        }
+                                        Navigator.pop(dCtx, {
+                                          'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
+                                          'grams': newG,
+                                          'kcal': newK,
+                                          'carbs': newC,
+                                          'protein': newP,
+                                          'fat': newF,
+                                        });
+                                      },
+                                      child: Text(S.of(context).save),
+                                    ),
+                                  ],
                                 ),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(S.of(context).cancel)),
-                                  FilledButton(
-                                    onPressed: () {
-                                      Navigator.pop(dCtx, {
-                                        'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-                                        'kcal': int.tryParse(kcalCtrl.text.trim()),
-                                        'carbs': int.tryParse(carbsCtrl.text.trim()),
-                                        'protein': int.tryParse(proteinCtrl.text.trim()),
-                                        'fat': int.tryParse(fatCtrl.text.trim()),
-                                      });
-                                    },
-                                    child: Text(S.of(context).save),
-                                  ),
-                                ],
                               );
                             },
                           );
                           if (updated != null) {
                             setState(() {
                               meal['name'] = updated['name'] ?? meal['name'];
+                              meal['grams'] = updated['grams'] ?? meal['grams'];
                               meal['kcal'] = updated['kcal'] ?? meal['kcal'];
                               meal['carbs'] = updated['carbs'] ?? meal['carbs'];
                               meal['protein'] = updated['protein'] ?? meal['protein'];
@@ -2066,6 +2528,329 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         );
       },
     );
+  }
+
+  // ---- Manual add & meal grouping helpers ----
+  Future<void> _addManualFood() async {
+    final s = S.of(context);
+    final nameCtrl = TextEditingController();
+    final kcalCtrl = TextEditingController();
+    final carbsCtrl = TextEditingController();
+    final proteinCtrl = TextEditingController();
+    final fatCtrl = TextEditingController();
+    final gramsCtrl = TextEditingController();
+    bool linkValues = true; // reserved for future scaling on edit
+    final data = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (context, setSB) => AlertDialog(
+          title: Text(s.addManual),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: s.name)),
+                const SizedBox(height: 8),
+                TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.weightLabel)),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: linkValues,
+                  onChanged: (v) => setSB(() => linkValues = v ?? true),
+                  title: Text(s.linkValues),
+                ),
+                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.kcalLabel)),
+                const SizedBox(height: 8),
+                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.carbsLabel)),
+                const SizedBox(height: 8),
+                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.proteinLabel)),
+                const SizedBox(height: 8),
+                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.fatLabel)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(s.cancel)),
+            FilledButton(
+              onPressed: () {
+                if (nameCtrl.text.trim().isEmpty) {
+                  Navigator.pop(dCtx);
+                  return;
+                }
+                Navigator.pop(dCtx, {
+                  'name': nameCtrl.text.trim(),
+                  'grams': int.tryParse(gramsCtrl.text.trim()),
+                  'kcal': int.tryParse(kcalCtrl.text.trim()),
+                  'carbs': int.tryParse(carbsCtrl.text.trim()),
+                  'protein': int.tryParse(proteinCtrl.text.trim()),
+                  'fat': int.tryParse(fatCtrl.text.trim()),
+                });
+              },
+              child: Text(s.save),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (data == null) return;
+    final localizedStructured = _localizedStructured({
+      'Name': data['name'] ?? '-',
+      'Calories': data['kcal'] != null ? '${data['kcal']} kcal' : '-',
+      'Carbs': data['carbs'] != null ? '${data['carbs']} g' : '-',
+      'Proteins': data['protein'] != null ? '${data['protein']} g' : '-',
+      'Fats': data['fat'] != null ? '${data['fat']} g' : '-',
+  if (data['grams'] != null) 'Weight (g)': '${data['grams']} g',
+    });
+    final newMeal = {
+      'image': null,
+      'imagePath': null,
+      'description': data['name'],
+      'name': data['name'],
+      'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
+      'structured': localizedStructured,
+      'grams': data['grams'],
+      'kcal': data['kcal'],
+      'carbs': data['carbs'],
+      'protein': data['protein'],
+      'fat': data['fat'],
+      'time': DateTime.now(),
+      'hcWritten': false,
+    };
+    setState(() {
+      _history.add(newMeal);
+      _pruneHistory();
+    });
+    await _saveHistory();
+    // If building a meal, append inside current group
+    if (_pendingMealGroup != null) {
+      _appendToGroup(_pendingMealGroup!, newMeal);
+      await _saveHistory();
+    }
+    if (!mounted) return;
+    _tabController.animateTo(0);
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted) _showMealDetails(newMeal);
+    });
+    _maybeOfferAddAnother(newMeal);
+  }
+
+  void _maybeOfferAddAnother(Map<String, dynamic> newMeal) {
+    final s = S.of(context);
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(s.addAnotherQ, style: Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  if (_pendingMealGroup == null) {
+                    _startMealGroupWith(newMeal);
+                  } else {
+                    _appendToGroup(_pendingMealGroup!, newMeal);
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(s.mealStarted),
+                      action: SnackBarAction(label: s.finishMeal, onPressed: _finishPendingMeal),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.add),
+                label: Text(s.addAnother),
+              ),
+              const SizedBox(height: 8),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.notNow)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _startMealGroupWith(Map<String, dynamic> first) {
+    final idx = _history.indexOf(first);
+    if (idx < 0) return;
+    final group = <String, dynamic>{
+      'isGroup': true,
+      'name': S.of(context).meal,
+      'time': first['time'],
+      'children': [first],
+      'image': first['image'],
+      'imagePath': first['imagePath'],
+      'hcWritten': false,
+    };
+    _recomputeGroupSums(group);
+    setState(() {
+      _history[idx] = group;
+      _pendingMealGroup = group;
+    });
+    // ignore: discarded_futures
+    _saveHistory();
+  }
+
+  void _appendToGroup(Map<String, dynamic> group, Map<String, dynamic> item) {
+    setState(() {
+      _history.remove(item);
+      (group['children'] as List).add(item);
+      _recomputeGroupSums(group);
+    });
+    // ignore: discarded_futures
+    _saveHistory();
+  }
+
+  void _recomputeGroupSums(Map<String, dynamic> group) {
+    int sumK = 0, sumC = 0, sumP = 0, sumF = 0;
+    bool hasK = false, hasC = false, hasP = false, hasF = false;
+    if (group['children'] is List) {
+      for (final e in (group['children'] as List).cast<Map>()) {
+        final k = e['kcal'];
+        final c = e['carbs'];
+        final p = e['protein'];
+        final f = e['fat'];
+        if (k is int) { sumK += k; hasK = true; }
+        if (c is int) { sumC += c; hasC = true; }
+        if (p is int) { sumP += p; hasP = true; }
+        if (f is int) { sumF += f; hasF = true; }
+      }
+    }
+    group['kcal'] = hasK ? sumK : null;
+    group['carbs'] = hasC ? sumC : null;
+    group['protein'] = hasP ? sumP : null;
+    group['fat'] = hasF ? sumF : null;
+    group['result'] = S.of(context).groupSummary(sumK, sumC, sumP, sumF);
+  }
+
+  void _finishPendingMeal() {
+    setState(() => _pendingMealGroup = null);
+  }
+
+  // --- Formatting helpers ---
+  DateTime? _asDateTime(dynamic t) {
+    if (t is DateTime) return t;
+    if (t is String) return DateTime.tryParse(t);
+    return null;
+  }
+
+  String _formatTimeShort(DateTime t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  // Normalize keys in a structured nutrition map to the current locale so UI shows consistent labels
+  Map<String, dynamic> _localizedStructured(Map<String, dynamic> raw) {
+    final code = S.of(context).locale.languageCode;
+    String mapKey(String key) {
+      if (code == 'fr') {
+        switch (key) {
+          case 'Name':
+            return "Nom de l'aliment";
+          case 'Carbs':
+            return 'Glucides';
+          case 'Proteins':
+            return 'Proteines';
+          case 'Fats':
+            return 'Lipides';
+          case 'Weight':
+          case 'Weight (g)':
+          case 'Weight(g)':
+            return 'Poids (g)';
+        }
+      } else {
+        switch (key) {
+          case "Nom de l'aliment":
+            return 'Name';
+          case 'Glucides':
+            return 'Carbs';
+          case 'Proteines':
+          case 'Protéines':
+            return 'Proteins';
+          case 'Lipides':
+            return 'Fats';
+          case 'Poids':
+          case 'Poids (g)':
+            return 'Weight (g)';
+        }
+      }
+      return key;
+    }
+
+    Map<String, dynamic> walk(Map<String, dynamic> m) {
+      final out = <String, dynamic>{};
+      m.forEach((key, value) {
+        final nk = mapKey(key);
+        if (value is Map<String, dynamic>) {
+          out[nk] = walk(value);
+        } else if (value is Map) {
+          out[nk] = walk(Map<String, dynamic>.from(value));
+        } else if (value is List) {
+      out[nk] = value
+        .map((e) => e is Map ? walk(Map<String, dynamic>.from(e)) : e)
+        .toList();
+        } else {
+          out[nk] = value;
+        }
+      });
+      return out;
+    }
+
+    return walk(raw);
+  }
+
+  void _ungroupMeal(Map<String, dynamic> group) {
+    if (group['isGroup'] == true && group['children'] is List) {
+      final idx = _history.indexOf(group);
+      if (idx >= 0) {
+        setState(() {
+          _history.removeAt(idx);
+          final kids = (group['children'] as List).cast<Map<String, dynamic>>();
+          _history.insertAll(idx, kids);
+          if (identical(_pendingMealGroup, group)) _pendingMealGroup = null;
+        });
+      }
+    }
+  }
+
+  void _mergeMeals(Map<String, dynamic> source, Map<String, dynamic> target) async {
+    if (identical(source, target)) return;
+    final tIdx = _history.indexOf(target);
+    final sIdx = _history.indexOf(source);
+    if (tIdx < 0 || sIdx < 0) return;
+    setState(() {
+      if (target['isGroup'] == true) {
+        final List kids = target['children'] as List? ?? [];
+        if (source['isGroup'] == true) {
+          kids.addAll((source['children'] as List?) ?? const []);
+        } else {
+          kids.add(source);
+        }
+        target['children'] = kids;
+        _recomputeGroupSums(target);
+        _history.removeAt(sIdx);
+      } else {
+        final group = <String, dynamic>{
+          'isGroup': true,
+          'name': S.of(context).meal,
+          'time': target['time'],
+          'children': source['isGroup'] == true ? [target, ...(source['children'] as List? ?? const [])] : [target, source],
+          'image': target['image'],
+          'imagePath': target['imagePath'],
+          'hcWritten': false,
+        };
+        _recomputeGroupSums(group);
+        final keepIdx = _history.indexOf(target);
+        _history[keepIdx] = group;
+        final rmIdx = _history.indexOf(source);
+        if (rmIdx >= 0) _history.removeAt(rmIdx);
+      }
+    });
+    await _saveHistory();
   }
 
 }
@@ -2427,178 +3212,280 @@ class _HistoryMealCard extends StatelessWidget {
   final Map<String, dynamic> meal;
   final VoidCallback onDelete;
   final VoidCallback? onTap;
-  const _HistoryMealCard({required this.meal, required this.onDelete, this.onTap});
+  final void Function(Map<String, dynamic> source)? onDrop;
+  const _HistoryMealCard({required this.meal, required this.onDelete, this.onTap, this.onDrop});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-  final s = S.of(context);
+    final s = S.of(context);
     final kcal = meal['kcal'] as int?;
-  final kcalColor = kcal == null
+    final kcalColor = kcal == null
         ? scheme.onSurfaceVariant
         : (kcal < 700 ? Colors.green : (kcal < 1000 ? Colors.orange : Colors.red));
     final carbs = meal['carbs'] as int?;
-  final protein = meal['protein'] as int?;
-  final fat = meal['fat'] as int?;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-      child: Card(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-      if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty))
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(
-        File(meal['image'] != null ? meal['image'].path : (meal['imagePath'] as String)),
-                    width: 72,
-                    height: 72,
-                    fit: BoxFit.cover,
-                  ),
-                )
-              else
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.fastfood, color: scheme.onSurfaceVariant),
-                ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final protein = meal['protein'] as int?;
+    final fat = meal['fat'] as int?;
+
+    final Widget cardContent = Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty))
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                File(meal['image'] != null ? meal['image'].path : (meal['imagePath'] as String)),
+                width: 72,
+                height: 72,
+                fit: BoxFit.cover,
+              ),
+            )
+          else
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.fastfood, color: scheme.onSurfaceVariant),
+            ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(meal['name'] ?? meal['description'] ?? S.of(context).noDescription,
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        if (kcal != null)
-                          _Pill(
-                            icon: Icons.local_fire_department,
-                            label: '$kcal ${s.kcalSuffix}',
-                            color: kcalColor,
-                          ),
-                        if (carbs != null)
-                          const SizedBox(height: 4),
-            if (carbs != null)
-                          _Pill(
-                            icon: Icons.grain,
-                            label: '$carbs ${s.carbsSuffix}',
-              color: _carbsColor(context),
-                          ),
-                        if (protein != null)
-                          _Pill(
-                            icon: Icons.egg_alt,
-                            label: '$protein ${s.proteinSuffix}',
-                            color: Colors.teal,
-                          ),
-                        if (fat != null)
-                          _Pill(
-                            icon: Icons.blur_on,
-                            label: '$fat ${s.fatSuffix}',
-                            color: Colors.purple,
-                          ),
-                      ],
+                    Expanded(
+                      child: Text(
+                        meal['name'] ?? meal['description'] ?? s.noDescription,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    // Hide raw JSON preview in history; show only pills and title.
+                    Builder(builder: (ctx) {
+                      final dt = context.findAncestorStateOfType<_MainScreenState>()?._asDateTime(meal['time']);
+                      return dt == null
+                          ? const SizedBox.shrink()
+                          : Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                context.findAncestorStateOfType<_MainScreenState>()!._formatTimeShort(dt),
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            );
+                    }),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                onSelected: (val) async {
-                  if (val == 'edit') {
-                    final updated = await showDialog<Map<String, dynamic>>(
-                      context: context,
-                      builder: (ctx) {
-                        final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
-                        final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
-                        final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
-                        final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
-                        final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
-                        return AlertDialog(
-                          title: Text(S.of(context).editMeal),
-                          content: SingleChildScrollView(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
-                                const SizedBox(height: 8),
-                                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
-                                const SizedBox(height: 8),
-                                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
-                                const SizedBox(height: 8),
-                                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
-                                const SizedBox(height: 8),
-                                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
-                              ],
-                            ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (kcal != null)
+                      _Pill(
+                        icon: Icons.local_fire_department,
+                        label: '$kcal ${s.kcalSuffix}',
+                        color: kcalColor,
+                      ),
+                    if (carbs != null) const SizedBox(height: 4),
+                    if (carbs != null)
+                      _Pill(
+                        icon: Icons.grain,
+                        label: '$carbs ${s.carbsSuffix}',
+                        color: _carbsColor(context),
+                      ),
+                    if (protein != null)
+                      _Pill(
+                        icon: Icons.egg_alt,
+                        label: '$protein ${s.proteinSuffix}',
+                        color: Colors.teal,
+                      ),
+                    if (fat != null)
+                      _Pill(
+                        icon: Icons.blur_on,
+                        label: '$fat ${s.fatSuffix}',
+                        color: Colors.purple,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          PopupMenuButton<String>(
+            onSelected: (val) async {
+              if (val == 'edit') {
+                final updated = await showDialog<Map<String, dynamic>>(
+                  context: context,
+                  builder: (ctx) {
+                    final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
+                    final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
+                    final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
+                    final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
+                    final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
+                    final gramsCtrl = TextEditingController(text: meal['grams']?.toString() ?? '');
+                    bool linkValues = true;
+                    final oldK = meal['kcal'] as int?;
+                    final oldC = meal['carbs'] as int?;
+                    final oldP = meal['protein'] as int?;
+                    final oldF = meal['fat'] as int?;
+                    final oldG = meal['grams'] as int?;
+                    return StatefulBuilder(
+                      builder: (context, setSB) => AlertDialog(
+                        title: Text(S.of(context).editMeal),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                              const SizedBox(height: 8),
+                              TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: linkValues,
+                                onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                title: Text(S.of(context).linkValues),
+                              ),
+                              TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                              const SizedBox(height: 8),
+                              TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                              const SizedBox(height: 8),
+                              TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                              const SizedBox(height: 8),
+                              TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                            ],
                           ),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
-                            FilledButton(
-                              onPressed: () {
-                                Navigator.pop(ctx, {
-                                  'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-                                  'kcal': int.tryParse(kcalCtrl.text.trim()),
-                                  'carbs': int.tryParse(carbsCtrl.text.trim()),
-                                  'protein': int.tryParse(proteinCtrl.text.trim()),
-                                  'fat': int.tryParse(fatCtrl.text.trim()),
-                                });
-                              },
-                              child: Text(S.of(context).save),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                    if (updated != null) {
-                      meal['name'] = updated['name'] ?? meal['name'];
-                      meal['kcal'] = updated['kcal'] ?? meal['kcal'];
-                      meal['carbs'] = updated['carbs'] ?? meal['carbs'];
-                      meal['protein'] = updated['protein'] ?? meal['protein'];
-                      meal['fat'] = updated['fat'] ?? meal['fat'];
-                      // ignore: use_build_context_synchronously
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
-                      final state = context.findAncestorStateOfType<_MainScreenState>();
-                      await state?._saveHistory();
-                    }
-                  } else if (val == 'delete') {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text(S.of(context).deleteItem),
-                        content: Text(S.of(context).deleteConfirm),
+                        ),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.of(context).cancel)),
-                          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(S.of(context).delete)),
+                          TextButton(
+                            onPressed: () {
+                              setSB(() {
+                                nameCtrl.text = meal['name']?.toString() ?? '';
+                                gramsCtrl.text = (meal['grams']?.toString() ?? '');
+                                kcalCtrl.text = (meal['kcal']?.toString() ?? '');
+                                carbsCtrl.text = (meal['carbs']?.toString() ?? '');
+                                proteinCtrl.text = (meal['protein']?.toString() ?? '');
+                                fatCtrl.text = (meal['fat']?.toString() ?? '');
+                              });
+                            },
+                            child: Text(S.of(context).restoreDefaults),
+                          ),
+                          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
+                          FilledButton(
+                            onPressed: () {
+                              int? newG = int.tryParse(gramsCtrl.text.trim());
+                              int? newK = int.tryParse(kcalCtrl.text.trim());
+                              int? newC = int.tryParse(carbsCtrl.text.trim());
+                              int? newP = int.tryParse(proteinCtrl.text.trim());
+                              int? newF = int.tryParse(fatCtrl.text.trim());
+                              if (linkValues) {
+                                double? factor;
+                                if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                  factor = newC / oldC;
+                                } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                  factor = newP / oldP;
+                                } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                  factor = newF / oldF;
+                                } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                  factor = newK / oldK;
+                                } else if (oldG != null && newG != null && oldG > 0 && newG != oldG) {
+                                  factor = newG / oldG;
+                                }
+                                if (factor != null) {
+                                  if (newG == null || newG == oldG) newG = oldG != null ? (oldG * factor).round() : null;
+                                  if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
+                                  if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
+                                  if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
+                                  if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                }
+                              }
+                              Navigator.pop(ctx, {
+                                'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
+                                'grams': newG,
+                                'kcal': newK,
+                                'carbs': newC,
+                                'protein': newP,
+                                'fat': newF,
+                              });
+                            },
+                            child: Text(S.of(context).save),
+                          ),
                         ],
                       ),
                     );
-                    if (ok == true) onDelete();
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  PopupMenuItem(value: 'edit', child: ListTile(leading: const Icon(Icons.edit_outlined), title: Text(S.of(context).edit))),
-                  PopupMenuItem(value: 'delete', child: ListTile(leading: const Icon(Icons.delete_outline), title: Text(S.of(context).delete))),
-                ],
-              ),
+                  },
+                );
+                if (updated != null) {
+                  meal['name'] = updated['name'] ?? meal['name'];
+                  meal['grams'] = updated['grams'] ?? meal['grams'];
+                  meal['kcal'] = updated['kcal'] ?? meal['kcal'];
+                  meal['carbs'] = updated['carbs'] ?? meal['carbs'];
+                  meal['protein'] = updated['protein'] ?? meal['protein'];
+                  meal['fat'] = updated['fat'] ?? meal['fat'];
+                  // ignore: use_build_context_synchronously
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
+                  final state = context.findAncestorStateOfType<_MainScreenState>();
+                  await state?._saveHistory();
+                }
+              } else if (val == 'delete') {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(S.of(context).deleteItem),
+                    content: Text(S.of(context).deleteConfirm),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.of(context).cancel)),
+                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(S.of(context).delete)),
+                    ],
+                  ),
+                );
+                if (ok == true) onDelete();
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(value: 'edit', child: ListTile(leading: const Icon(Icons.edit_outlined), title: Text(S.of(context).edit))),
+              PopupMenuItem(value: 'delete', child: ListTile(leading: const Icon(Icons.delete_outline), title: Text(S.of(context).delete))),
             ],
-            ),
           ),
-        ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: DragTarget<Map<String, dynamic>>(
+        onWillAccept: (data) => data != null && !identical(data, meal),
+        onAccept: (data) => onDrop?.call(data),
+        builder: (context, candidates, rejected) {
+          final highlight = candidates.isNotEmpty;
+          return LongPressDraggable<Map<String, dynamic>>(
+            data: meal,
+            feedback: Material(
+              elevation: 6,
+              borderRadius: BorderRadius.circular(16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Card(child: cardContent),
+              ),
+            ),
+            child: Card(
+              color: highlight ? Theme.of(context).colorScheme.secondaryContainer : null,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: onTap,
+                child: cardContent,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -2749,6 +3636,9 @@ class S {
   String get error => _code == 'fr' ? 'Erreur' : 'Error';
   String get noHistory => _code == 'fr' ? 'Aucun historique' : 'No history yet';
   String get noDescription => _code == 'fr' ? 'Sans description' : 'No description';
+  String get weightLabel => _code == 'fr' ? 'Poids (g)' : 'Weight (g)';
+  String get linkToWeight => _code == 'fr' ? 'Lier les valeurs au poids' : 'Link values to weight';
+  String get linkValues => _code == 'fr' ? 'Lier toutes les valeurs ensemble' : 'Link all values together';
 
   String get dailyIntake => _code == 'fr' ? 'Apport quotidien' : 'Daily Intake';
   String get dailyLimit => _code == 'fr' ? 'Limite quotidienne' : 'Daily limit';
@@ -2779,6 +3669,7 @@ class S {
   String get emptyResponse => _code == 'fr' ? 'Réponse vide' : 'Empty response';
 
   String get mealDetails => _code == 'fr' ? 'Détails du repas' : 'Meal details';
+  String get meal => _code == 'fr' ? 'Repas' : 'Meal';
   String get edit => _code == 'fr' ? 'Modifier' : 'Edit';
   String get editMeal => _code == 'fr' ? 'Modifier le repas' : 'Edit meal';
   String get name => _code == 'fr' ? 'Nom' : 'Name';
@@ -2792,10 +3683,47 @@ class S {
   String get deleteConfirm => _code == 'fr' ? 'Voulez-vous vraiment supprimer cette entrée ?' : 'Are you sure you want to delete this entry?';
   String get delete => _code == 'fr' ? 'Supprimer' : 'Delete';
   String get mealUpdated => _code == 'fr' ? 'Repas mis à jour' : 'Meal updated';
+  String get addManual => _code == 'fr' ? 'Ajouter manuellement' : 'Add manually';
+  String get mealBuilderActive => _code == 'fr' ? 'Construction d’un repas en cours' : 'Meal builder active';
+  String get finishMeal => _code == 'fr' ? 'Terminer le repas' : 'Finish meal';
+  String get restoreDefaults => _code == 'fr' ? 'Restaurer les valeurs par défaut' : 'Restore defaults';
+  String get addAnotherQ => _code == 'fr' ? 'Ajouter un autre aliment à ce repas ?' : 'Add another item to this meal?';
+  String get addAnother => _code == 'fr' ? 'Ajouter un autre' : 'Add another';
+  String get notNow => _code == 'fr' ? 'Pas maintenant' : 'Not now';
+  String get mealStarted => _code == 'fr' ? 'Nouveau repas en cours. Ajoutez d’autres éléments.' : 'Meal started. Add more items.';
+  String itemsInMeal(int n) => _code == 'fr' ? '$n éléments' : '$n items';
+  String get remove => _code == 'fr' ? 'Retirer' : 'Remove';
+  String get ungroup => _code == 'fr' ? 'Dissocier' : 'Ungroup';
+  String groupSummary(int k, int c, int p, int f) => _code == 'fr'
+      ? 'Total: ${k} kcal • ${c} g glucides • ${p} g protéines • ${f} g lipides'
+      : 'Total: ${k} kcal • ${c} g carbs • ${p} g protein • ${f} g fat';
 
   // Units/suffixes
   String get kcalSuffix => 'kcal';
   String get carbsSuffix => _code == 'fr' ? 'g glucides' : 'g carbs';
   String get proteinSuffix => _code == 'fr' ? 'g protéines' : 'g protein';
   String get fatSuffix => _code == 'fr' ? 'g lipides' : 'g fat';
+
+  // Info menu
+  String get info => _code == 'fr' ? 'Infos' : 'Info';
+  String get about => _code == 'fr' ? 'À propos' : 'About';
+  String versionBuild(String v, String b) => _code == 'fr' ? 'Version $v ($b)' : 'Version $v ($b)';
+  String get joinDiscord => _code == 'fr'
+    ? 'Pour discuter avec nous ou obtenir de l’aide, rejoignez le Discord'
+    : 'To discuss with us or for support, join the discord';
+  String get openGithubIssue => _code == 'fr'
+    ? 'Pour un problème ou une suggestion, ouvrez un ticket GitHub'
+    : 'For issues or suggestions, please open a github issue';
+
+  // Export/Import
+  String get exportHistory => _code == 'fr' ? 'Exporter l\'historique' : 'Export history';
+  String get importHistory => _code == 'fr' ? 'Importer l\'historique' : 'Import history';
+  String get exportCanceled => _code == 'fr' ? 'Export annulé' : 'Export canceled';
+  String get exportSuccess => _code == 'fr' ? 'Historique exporté' : 'History exported';
+  String get exportFailed => _code == 'fr' ? 'Échec de l\'export' : 'Export failed';
+  String get confirmImportReplace => _code == 'fr'
+      ? 'Importer remplacera votre historique actuel. Continuer ?'
+      : 'Import will replace your current history. Continue?';
+  String get importSuccess => _code == 'fr' ? 'Historique importé' : 'History imported';
+  String get importFailed => _code == 'fr' ? 'Échec de l\'import' : 'Import failed';
 }
