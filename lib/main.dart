@@ -3622,7 +3622,7 @@ class S {
   String get tabMain => _code == 'fr' ? 'Principal' : 'Main';
   String get tabDaily => _code == 'fr' ? 'Quotidien' : 'Daily';
 
-  String get describeMeal => _code == 'fr' ? 'Décrivez votre repas' : 'Describe your meal';
+  String get describeMeal => _code == 'fr' ? 'Indiquez des précisions pour aider l\'IA' : 'Provide details to help the AI';
   String get describeMealHint => _code == 'fr' ? 'ex. poulet, riz, salade…' : 'e.g. chicken, rice, salad…';
   String get takePhoto => _code == 'fr' ? 'Prendre une photo' : 'Take Photo';
   String get pickImage => _code == 'fr' ? 'Choisir une image' : 'Pick Image';
