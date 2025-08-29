@@ -483,16 +483,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('disable_announcements_globally') == true) return;
     try {
-      final uri = Uri.parse('${_baseUrl()}/announcement');
-      final res = await http.get(uri);
+      final localeCode = (S.of(context).locale.languageCode == 'fr') ? 'fr' : 'en';
+      final uri = Uri.parse('${_baseUrl()}/announcement?lang=$localeCode');
+      final res = await http.get(uri, headers: {
+        'Accept-Language': localeCode,
+      });
       if (res.statusCode == 200) {
         final map = json.decode(res.body);
         if (map is Map && map['ok'] == true) {
           final md = (map['markdown']?.toString() ?? '').trim();
           final id = map['id']?.toString();
-          final hiddenId = prefs.getString('hidden_announcement_id');
+          final hiddenId = prefs.getString('hidden_announcement_id_$localeCode')
+              ?? prefs.getString('hidden_announcement_id'); // legacy fallback
           if (md.isNotEmpty && (id == null || id != hiddenId) && mounted) {
-            await _showAnnouncementDialog(md, id: id);
+            await _showAnnouncementDialog(md, id: id, localeCode: localeCode);
           }
         }
       }
@@ -501,7 +505,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _showAnnouncementDialog(String md, {String? id}) async {
+  Future<void> _showAnnouncementDialog(String md, {String? id, String? localeCode}) async {
     final s = S.of(context);
     bool hideForever = false;
     await showDialog(
@@ -548,7 +552,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (hideForever) {
       final prefs = await SharedPreferences.getInstance();
       if (id != null && id.isNotEmpty) {
-        await prefs.setString('hidden_announcement_id', id);
+  final key = 'hidden_announcement_id_${localeCode ?? S.of(context).locale.languageCode}';
+  await prefs.setString(key, id);
       } else {
         await prefs.setBool('hide_announcement_forever', true);
       }

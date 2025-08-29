@@ -370,31 +370,36 @@ app.get('/', requireAdmin, (req, res) => {
     </form>
 
     <h2>Announcement</h2>
-    <p class="help">Configure a Markdown announcement shown in the app at startup. Users can choose "Hide forever" on device.</p>
+    <p class="help">Configure localized Markdown announcements shown in the app at startup. Users can choose "Hide forever" per-announcement; you can also provide separate messages for English and French.</p>
     <form id="settingsForm">
       <div class="row">
         <input name="discord_url" placeholder="Discord invite URL (optional)" />
         <input name="github_issues_url" placeholder="GitHub issues URL (optional)" />
       </div>
-      <div class="row">
-        <textarea name="announcement_md" placeholder="Write Markdown announcement here... Use $discord and $github_issues tokens to insert logos/links" rows="8"></textarea>
+      <div class="col">
+        <div>
+          <h3>English</h3>
+          <textarea name="announcement_md_en" placeholder="English Markdown... Use $discord and $github_issues tokens to insert logos/links" rows="8"></textarea>
+          <h4>Preview (EN)</h4>
+          <div id="mdPreviewEn" class="preview"></div>
+        </div>
+        <div>
+          <h3>Français</h3>
+          <textarea name="announcement_md_fr" placeholder="Markdown français... Utilisez les tokens $discord et $github_issues" rows="8"></textarea>
+          <h4>Prévisualisation (FR)</h4>
+          <div id="mdPreviewFr" class="preview"></div>
+        </div>
       </div>
       <div class="row">
         <button type="submit">Save</button>
         <span id="saveOut"></span>
       </div>
-      <div class="col">
-        <div>
-          <h3>Preview</h3>
-          <div id="mdPreview" class="preview"></div>
-        </div>
-        <div>
-          <h3>Tokens</h3>
-          <ul>
-            <li><code>$discord</code> → Discord logo + link (uses Discord URL)</li>
-            <li><code>$github_issues</code> → GitHub logo + link (uses GitHub Issues URL)</li>
-          </ul>
-        </div>
+      <div>
+        <h3>Tokens</h3>
+        <ul>
+          <li><code>$discord</code> → Discord logo + link (uses Discord URL)</li>
+          <li><code>$github_issues</code> → GitHub logo + link (uses GitHub Issues URL)</li>
+        </ul>
       </div>
     </form>
 
@@ -415,10 +420,12 @@ app.get('/', requireAdmin, (req, res) => {
 
       // Settings form
       const settingsForm = document.getElementById('settingsForm');
-      const mdEl = settingsForm.querySelector('textarea[name="announcement_md"]');
+  const mdEnEl = settingsForm.querySelector('textarea[name="announcement_md_en"]');
+  const mdFrEl = settingsForm.querySelector('textarea[name="announcement_md_fr"]');
       const dUrlEl = settingsForm.querySelector('input[name="discord_url"]');
       const gUrlEl = settingsForm.querySelector('input[name="github_issues_url"]');
-      const prevEl = document.getElementById('mdPreview');
+  const prevEnEl = document.getElementById('mdPreviewEn');
+  const prevFrEl = document.getElementById('mdPreviewFr');
       const saveOut = document.getElementById('saveOut');
 
     function tokenize(md) {
@@ -433,10 +440,14 @@ app.get('/', requireAdmin, (req, res) => {
 
       function renderPreview() {
         try {
-          prevEl.innerHTML = marked.parse(tokenize(mdEl.value || ''));
-        } catch (e) { prevEl.textContent = 'Preview error'; }
+          prevEnEl.innerHTML = marked.parse(tokenize(mdEnEl.value || ''));
+        } catch (e) { prevEnEl.textContent = 'Preview error'; }
+        try {
+          prevFrEl.innerHTML = marked.parse(tokenize(mdFrEl.value || ''));
+        } catch (e) { prevFrEl.textContent = 'Preview error'; }
       }
-      mdEl.addEventListener('input', renderPreview);
+      mdEnEl.addEventListener('input', renderPreview);
+      mdFrEl.addEventListener('input', renderPreview);
       dUrlEl.addEventListener('input', renderPreview);
       gUrlEl.addEventListener('input', renderPreview);
 
@@ -444,7 +455,8 @@ app.get('/', requireAdmin, (req, res) => {
         const res = await fetch('/admin/settings');
         const json = await res.json();
         if (json && json.ok && json.settings) {
-          mdEl.value = json.settings.announcement_md || '';
+          mdEnEl.value = json.settings.announcement_md_en || json.settings.announcement_md || '';
+          mdFrEl.value = json.settings.announcement_md_fr || '';
           dUrlEl.value = json.settings.discord_url || '';
           gUrlEl.value = json.settings.github_issues_url || '';
           renderPreview();
@@ -456,7 +468,8 @@ app.get('/', requireAdmin, (req, res) => {
         e.preventDefault();
         saveOut.textContent = 'Saving...';
         const body = {
-          announcement_md: mdEl.value || '',
+          announcement_md_en: mdEnEl.value || '',
+          announcement_md_fr: mdFrEl.value || '',
           discord_url: dUrlEl.value || '',
           github_issues_url: gUrlEl.value || ''
         };
@@ -497,7 +510,10 @@ app.get('/admin/settings', requireAdmin, async (req, res) => {
       for (const r of rows) { map[r.k] = r.v; }
     }
     res.json({ ok: true, settings: {
+      // Backward compat: announcement_md kept if present; new fields preferred
       announcement_md: map.announcement_md || '',
+      announcement_md_en: map.announcement_md_en || map.announcement_md || '',
+      announcement_md_fr: map.announcement_md_fr || '',
       discord_url: map.discord_url || '',
       github_issues_url: map.github_issues_url || ''
     }});
@@ -509,10 +525,13 @@ app.get('/admin/settings', requireAdmin, async (req, res) => {
 
 app.post('/admin/settings', requireAdmin, async (req, res) => {
   try {
-    const { announcement_md = '', discord_url = '', github_issues_url = '' } = req.body || {};
+    const { announcement_md_en = '', announcement_md_fr = '', discord_url = '', github_issues_url = '' } = req.body || {};
     const pool = await dbPoolPromise;
     const entries = [
-      ['announcement_md', String(announcement_md || '')],
+      // Keep legacy key updated to EN for clients that don’t support locale yet
+      ['announcement_md', String(announcement_md_en || '')],
+      ['announcement_md_en', String(announcement_md_en || '')],
+      ['announcement_md_fr', String(announcement_md_fr || '')],
       ['discord_url', String(discord_url || '')],
       ['github_issues_url', String(github_issues_url || '')],
     ];
@@ -578,12 +597,19 @@ app.post('/data', authJwt, requireToken, upload.single('image'), async (req, res
 app.get('/announcement', async (req, res) => {
   try {
     const pool = await dbPoolPromise;
-    const [rows] = await pool.query('SELECT k, v FROM app_settings WHERE k IN ("announcement_md","discord_url","github_issues_url")');
+    const [rows] = await pool.query('SELECT k, v FROM app_settings WHERE k IN ("announcement_md","announcement_md_en","announcement_md_fr","discord_url","github_issues_url")');
     const map = {};
     if (Array.isArray(rows)) {
       for (const r of rows) map[r.k] = r.v;
     }
-    const md = String(map.announcement_md || '').trim();
+    // Determine locale from query ?lang=fr / ?lang=en or Accept-Language
+    const qLang = (req.query.lang || '').toString().trim().toLowerCase();
+    const acceptLang = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
+    const lang = qLang === 'fr' || qLang === 'en' ? qLang : (acceptLang.startsWith('fr') ? 'fr' : 'en');
+
+    const md = String(
+      lang === 'fr' ? (map.announcement_md_fr || '') : (map.announcement_md_en || map.announcement_md || '')
+    ).trim();
     const discord = String(map.discord_url || '').trim();
     const issues = String(map.github_issues_url || '').trim();
     const discordImg = 'https://img.icons8.com/color/48/discord--v2.png';
