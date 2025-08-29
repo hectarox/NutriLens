@@ -1,24 +1,31 @@
-# NutriLens app + backend (with Auth)
-
-This project contains the Flutter app and a Node.js backend (main.js) with:
-- Admin web panel to invite users (auto-generates a temporary password)
-- JWT-based login and forced password reset on first login
-- MySQL bootstrap (creates database/tables if missing)
+# NutriLens app + backend
 
 ## Backend setup
 
 1) Configure environment in `.env` (create it if missing):
 
 ```
+# Server
 PORT=3000
-APP_TOKEN=<choose-a-strong-shared-secret>
-JWT_SECRET=<choose-a-strong-jwt-secret>
+APP_TOKEN=<choose-a-strong-shared-secret> # Can be anything, think of it as a password, save it for later
+JWT_SECRET=<choose-a-strong-jwt-secret> # Can be anything, think of it as a password
+APP_BASE_URL=http://<external_ip>
+APP_PORT=3000 #same as server port
+GEMINI_API_KEYS=<key1,key2,...> #get them at https://aistudio.google.com
+
+# Auth setup (for inviting users)
+ADMIN_USER=<Username>
+ADMIN_PASSWORD=<Password>
+
+# Database setup
 DB_HOST=<mysql-host>
 DB_PORT=3306
 DB_USER=<mysql-user>
 DB_PASSWORD=<mysql-password>
 DB_NAME=<mysql-database>
-GEMINI_API_KEYS=<key1,key2,...>
+
+
+
 ```
 
 2) Install and run
@@ -58,8 +65,8 @@ Note: /data requires the shared secret header: `x-app-token: change_me`.
 1) Configure `.env.client` (create it if missing):
 
 ```
-APP_BASE_URL=http://<server-host>:<port>
-APP_TOKEN=<same-as-backend-APP_TOKEN>
+APP_BASE_URL=http://<server-host>:<port> #as in the other .env
+APP_TOKEN=<same-as-backend-APP_TOKEN> #same as the other .env
 ```
 
 2) Install dependencies and run
@@ -80,3 +87,5 @@ flutter build apk --release
 - Use the admin panel to invite a username; note the temporary password.
 - In the app, login with these credentials.
 - If prompted to set a new password, complete that step; the app will route to the main screen afterward.
+
+
