@@ -88,4 +88,3 @@ flutter build apk --release
 - In the app, login with these credentials.
 - If prompted to set a new password, complete that step; the app will route to the main screen afterward.
 
-
