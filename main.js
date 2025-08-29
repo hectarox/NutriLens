@@ -6,6 +6,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
+const crypto = require('crypto');
 const {
   GoogleGenerativeAI,
   HarmCategory,
@@ -133,6 +134,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Serve static assets (icons, etc.) from /static if needed in the future
+app.use('/static', express.static(path.join(__dirname, 'assets')));
 
 // Simple shared-secret guard; require header or bearer token
 function requireToken(req, res, next) {
@@ -258,6 +261,15 @@ async function bootstrapDb() {
     ) ENGINE=InnoDB;
   `);
 
+  // Key-value settings storage for admin-configurable options
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      k VARCHAR(191) NOT NULL PRIMARY KEY,
+      v TEXT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB;
+  `);
+
   return pool;
 }
 
@@ -339,7 +351,12 @@ app.get('/', requireAdmin, (req, res) => {
       .row{display:flex;gap:8px}
       .row>*{flex:1}
       code{background:#f6f8fa;padding:2px 6px;border-radius:4px}
+      .col{display:flex;gap:16px;align-items:flex-start}
+      .col>*{flex:1}
+      .help{color:#666;font-size:12px}
+      .preview{border:1px solid #eee;border-radius:8px;padding:12px;min-height:120px}
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <h1>NutriLens Admin</h1>
@@ -352,9 +369,39 @@ app.get('/', requireAdmin, (req, res) => {
       <div id="inviteOut"></div>
     </form>
 
+    <h2>Announcement</h2>
+    <p class="help">Configure a Markdown announcement shown in the app at startup. Users can choose "Hide forever" on device.</p>
+    <form id="settingsForm">
+      <div class="row">
+        <input name="discord_url" placeholder="Discord invite URL (optional)" />
+        <input name="github_issues_url" placeholder="GitHub issues URL (optional)" />
+      </div>
+      <div class="row">
+        <textarea name="announcement_md" placeholder="Write Markdown announcement here... Use $discord and $github_issues tokens to insert logos/links" rows="8"></textarea>
+      </div>
+      <div class="row">
+        <button type="submit">Save</button>
+        <span id="saveOut"></span>
+      </div>
+      <div class="col">
+        <div>
+          <h3>Preview</h3>
+          <div id="mdPreview" class="preview"></div>
+        </div>
+        <div>
+          <h3>Tokens</h3>
+          <ul>
+            <li><code>$discord</code> → Discord logo + link (uses Discord URL)</li>
+            <li><code>$github_issues</code> → GitHub logo + link (uses GitHub Issues URL)</li>
+          </ul>
+        </div>
+      </div>
+    </form>
+
     <h2>API</h2>
     <p>Mobile login: <code>POST /auth/login { username, password }</code></p>
     <p>Set password: <code>POST /auth/set-password (Bearer token) { newPassword }</code></p>
+    <p>Announcement: <code>GET /announcement</code> returns <code>{ ok, markdown }</code></p>
     <script>
       const form = document.getElementById('inviteForm');
       form.addEventListener('submit', async (e) => {
@@ -364,6 +411,59 @@ app.get('/', requireAdmin, (req, res) => {
         const res = await fetch('/admin/invite', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ username }) });
         const json = await res.json();
         document.getElementById('inviteOut').textContent = JSON.stringify(json, null, 2);
+      });
+
+      // Settings form
+      const settingsForm = document.getElementById('settingsForm');
+      const mdEl = settingsForm.querySelector('textarea[name="announcement_md"]');
+      const dUrlEl = settingsForm.querySelector('input[name="discord_url"]');
+      const gUrlEl = settingsForm.querySelector('input[name="github_issues_url"]');
+      const prevEl = document.getElementById('mdPreview');
+      const saveOut = document.getElementById('saveOut');
+
+    function tokenize(md) {
+        const d = dUrlEl.value || '#';
+        const g = gUrlEl.value || '#';
+        const discordImg = 'https://img.icons8.com/color/48/discord--v2.png';
+        const githubImg = 'https://img.icons8.com/ios-glyphs/48/github.png';
+        return (md || '')
+      .replace(/\$discord/g, '[![Discord](' + discordImg + ')](' + d + ')')
+      .replace(/\$github_issues/g, '[![GitHub](' + githubImg + ')](' + g + ')');
+      }
+
+      function renderPreview() {
+        try {
+          prevEl.innerHTML = marked.parse(tokenize(mdEl.value || ''));
+        } catch (e) { prevEl.textContent = 'Preview error'; }
+      }
+      mdEl.addEventListener('input', renderPreview);
+      dUrlEl.addEventListener('input', renderPreview);
+      gUrlEl.addEventListener('input', renderPreview);
+
+      async function loadSettings() {
+        const res = await fetch('/admin/settings');
+        const json = await res.json();
+        if (json && json.ok && json.settings) {
+          mdEl.value = json.settings.announcement_md || '';
+          dUrlEl.value = json.settings.discord_url || '';
+          gUrlEl.value = json.settings.github_issues_url || '';
+          renderPreview();
+        }
+      }
+      loadSettings();
+
+      settingsForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        saveOut.textContent = 'Saving...';
+        const body = {
+          announcement_md: mdEl.value || '',
+          discord_url: dUrlEl.value || '',
+          github_issues_url: gUrlEl.value || ''
+        };
+        const res = await fetch('/admin/settings', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+        const json = await res.json();
+        saveOut.textContent = json.ok ? 'Saved' : 'Save failed';
+        renderPreview();
       });
     </script>
   </body>
@@ -384,6 +484,45 @@ app.post('/admin/invite', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok:false, error:'invite failed' });
+  }
+});
+
+// Admin: read/save settings
+app.get('/admin/settings', requireAdmin, async (req, res) => {
+  try {
+    const pool = await dbPoolPromise;
+    const [rows] = await pool.query('SELECT k, v FROM app_settings');
+    const map = {};
+    if (Array.isArray(rows)) {
+      for (const r of rows) { map[r.k] = r.v; }
+    }
+    res.json({ ok: true, settings: {
+      announcement_md: map.announcement_md || '',
+      discord_url: map.discord_url || '',
+      github_issues_url: map.github_issues_url || ''
+    }});
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok:false, error:'load settings failed' });
+  }
+});
+
+app.post('/admin/settings', requireAdmin, async (req, res) => {
+  try {
+    const { announcement_md = '', discord_url = '', github_issues_url = '' } = req.body || {};
+    const pool = await dbPoolPromise;
+    const entries = [
+      ['announcement_md', String(announcement_md || '')],
+      ['discord_url', String(discord_url || '')],
+      ['github_issues_url', String(github_issues_url || '')],
+    ];
+    for (const [k, v] of entries) {
+      await pool.query('INSERT INTO app_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v=VALUES(v)', [k, v]);
+    }
+    res.json({ ok:true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok:false, error:'save settings failed' });
   }
 });
 
@@ -433,6 +572,31 @@ app.post('/data', authJwt, requireToken, upload.single('image'), async (req, res
     }
   } catch (_) {}
   handleRequestWithRetry(req, res);
+});
+
+// Public announcement endpoint (no auth) – returns processed Markdown
+app.get('/announcement', async (req, res) => {
+  try {
+    const pool = await dbPoolPromise;
+    const [rows] = await pool.query('SELECT k, v FROM app_settings WHERE k IN ("announcement_md","discord_url","github_issues_url")');
+    const map = {};
+    if (Array.isArray(rows)) {
+      for (const r of rows) map[r.k] = r.v;
+    }
+    const md = String(map.announcement_md || '').trim();
+    const discord = String(map.discord_url || '').trim();
+    const issues = String(map.github_issues_url || '').trim();
+    const discordImg = 'https://img.icons8.com/color/48/discord--v2.png';
+    const githubImg = 'https://img.icons8.com/ios-glyphs/48/github.png';
+    const processed = md
+      .replace(/\$discord/g, `[![Discord](${discordImg})](${discord || '#'})`)
+      .replace(/\$github_issues/g, `[![GitHub](${githubImg})](${issues || '#'})`);
+  const id = crypto.createHash('sha1').update(processed).digest('hex');
+  res.json({ ok: true, id, markdown: processed });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok:false, error:'announcement failed' });
+  }
 });
 
 // Start server

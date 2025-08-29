@@ -19,6 +19,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 // permission_handler not required for nutrition; we rely on health plugin's auth flow
 
 // Simple app settings with locale persistence
@@ -443,6 +444,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   bool _loadingBurned = false;
   // When set, newly added foods can be appended to this grouped meal until finished
   Map<String, dynamic>? _pendingMealGroup;
+  // Announcement
+  bool _announcementChecked = false;
+  bool _announcementsDisabled = false;
 
   @override
   void initState() {
@@ -460,6 +464,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Try to prefetch burned energy for today (no-op on unsupported platforms)
   // ignore: discarded_futures
   _loadTodayBurned();
+  // Fetch announcement after first frame so context is ready
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // ignore: discarded_futures
+    _checkAnnouncement();
+  });
   }
 
   @override
@@ -468,11 +477,90 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
+  Future<void> _checkAnnouncement() async {
+    if (_announcementChecked) return;
+    _announcementChecked = true;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('disable_announcements_globally') == true) return;
+    try {
+      final uri = Uri.parse('${_baseUrl()}/announcement');
+      final res = await http.get(uri);
+      if (res.statusCode == 200) {
+        final map = json.decode(res.body);
+        if (map is Map && map['ok'] == true) {
+          final md = (map['markdown']?.toString() ?? '').trim();
+          final id = map['id']?.toString();
+          final hiddenId = prefs.getString('hidden_announcement_id');
+          if (md.isNotEmpty && (id == null || id != hiddenId) && mounted) {
+            await _showAnnouncementDialog(md, id: id);
+          }
+        }
+      }
+    } catch (_) {
+      // ignore network errors
+    }
+  }
+
+  Future<void> _showAnnouncementDialog(String md, {String? id}) async {
+    final s = S.of(context);
+    bool hideForever = false;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.info),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: Markdown(
+                  data: md,
+                  shrinkWrap: true,
+                  onTapLink: (text, href, title) async {
+                    if (href == null) return;
+                    try { await launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {}
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+        StatefulBuilder(
+                builder: (ctx2, setSB) => CheckboxListTile(
+                  value: hideForever,
+                  onChanged: (v) => setSB(() => hideForever = v ?? false),
+          title: Text(S.of(context).hideForever),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(s.ok),
+          ),
+        ],
+      ),
+    );
+    if (hideForever) {
+      final prefs = await SharedPreferences.getInstance();
+      if (id != null && id.isNotEmpty) {
+        await prefs.setString('hidden_announcement_id', id);
+      } else {
+        await prefs.setBool('hide_announcement_forever', true);
+      }
+    }
+  }
+
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
+  _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
     });
   }
 
@@ -1456,6 +1544,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 title: const Text('Français'),
                 onChanged: (_) {
                   appSettings.setLocale(const Locale('fr'));
+                  Navigator.pop(ctx);
+                },
+              ),
+              const Divider(),
+              SwitchListTile(
+                value: _announcementsDisabled,
+                title: Text(S.of(context).disableAnnouncements),
+                subtitle: Text(S.of(context).disableAnnouncementsHint),
+                onChanged: (v) async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('disable_announcements_globally', v);
+                  if (!mounted) return;
+                  setState(() => _announcementsDisabled = v);
                   Navigator.pop(ctx);
                 },
               ),
@@ -3714,6 +3815,11 @@ class S {
   String get openGithubIssue => _code == 'fr'
     ? 'Pour un problème ou une suggestion, ouvrez un ticket GitHub'
     : 'For issues or suggestions, please open a github issue';
+  String get hideForever => _code == 'fr' ? 'Masquer cette annonce' : 'Hide this announcement';
+  String get disableAnnouncements => _code == 'fr' ? 'Désactiver les annonces' : 'Disable announcements';
+  String get disableAnnouncementsHint => _code == 'fr'
+      ? 'Ne jamais afficher les messages d\'administration au démarrage'
+      : 'Never show admin messages on startup';
 
   // Export/Import
   String get exportHistory => _code == 'fr' ? 'Exporter l\'historique' : 'Export history';
