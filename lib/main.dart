@@ -1437,95 +1437,104 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge)),
-              RadioListTile<String>(
-                value: 'system',
-                groupValue: current,
-                title: Text(s.systemLanguage),
-                onChanged: (_) {
-                  appSettings.setLocale(null);
-                  Navigator.pop(ctx);
-                },
-              ),
-              RadioListTile<String>(
-                value: 'en',
-                groupValue: current,
-                title: const Text('English'),
-                onChanged: (_) {
-                  appSettings.setLocale(const Locale('en'));
-                  Navigator.pop(ctx);
-                },
-              ),
-              RadioListTile<String>(
-                value: 'fr',
-                groupValue: current,
-                title: const Text('Français'),
-                onChanged: (_) {
-                  appSettings.setLocale(const Locale('fr'));
-                  Navigator.pop(ctx);
-                },
-              ),
-              const Divider(),
-              SwitchListTile(
-                value: _announcementsDisabled,
-                title: Text(S.of(context).disableAnnouncements),
-                subtitle: Text(S.of(context).disableAnnouncementsHint),
-                onChanged: (v) async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('disable_announcements_globally', v);
-                  if (!mounted) return;
-                  setState(() => _announcementsDisabled = v);
-                  Navigator.pop(ctx);
-                },
-              ),
-              const Divider(),
-              SwitchListTile(
-                value: appSettings.daltonian,
-                title: Text(s.daltonianMode),
-                subtitle: Text(s.daltonianModeHint),
-                onChanged: (v) async {
-                  await appSettings.setDaltonian(v);
-                  if (mounted) Navigator.pop(ctx);
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.upload_file),
-                title: Text(s.exportHistory),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await _exportHistory();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.download),
-                title: Text(s.importHistory),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await _importHistory();
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: Text(S.of(context).logout),
-                onTap: () async {
-                  await authState.setToken(null);
-                  if (mounted) {
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge)),
+                RadioListTile<String>(
+                  value: 'system',
+                  groupValue: current,
+                  title: Text(s.systemLanguage),
+                  onChanged: (_) {
+                    appSettings.setLocale(null);
                     Navigator.pop(ctx);
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (route) => false,
-                    );
-                  }
-                },
-              ),
-            ],
+                  },
+                ),
+                RadioListTile<String>(
+                  value: 'en',
+                  groupValue: current,
+                  title: const Text('English'),
+                  onChanged: (_) {
+                    appSettings.setLocale(const Locale('en'));
+                    Navigator.pop(ctx);
+                  },
+                ),
+                RadioListTile<String>(
+                  value: 'fr',
+                  groupValue: current,
+                  title: const Text('Français'),
+                  onChanged: (_) {
+                    appSettings.setLocale(const Locale('fr'));
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const Divider(),
+                SwitchListTile(
+                  value: _announcementsDisabled,
+                  title: Text(S.of(context).disableAnnouncements),
+                  subtitle: Text(S.of(context).disableAnnouncementsHint),
+                  onChanged: (v) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('disable_announcements_globally', v);
+                    if (!mounted) return;
+                    setState(() => _announcementsDisabled = v);
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const Divider(),
+                SwitchListTile(
+                  value: appSettings.daltonian,
+                  title: Text(s.daltonianMode),
+                  subtitle: Text(s.daltonianModeHint),
+                  onChanged: (v) async {
+                    await appSettings.setDaltonian(v);
+                    if (mounted) Navigator.pop(ctx);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.upload_file),
+                  title: Text(s.exportHistory),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _exportHistory();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.download),
+                  title: Text(s.importHistory),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _importHistory();
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: Text(S.of(context).logout),
+                  onTap: () async {
+                    await authState.setToken(null);
+                    if (mounted) {
+                      Navigator.pop(ctx);
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        (route) => false,
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -2370,9 +2379,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.add_circle_outline),
-                        label: Text(S.of(context).addAnother),
+                      child: OutlinedButton(
                         onPressed: () async {
                           setState(() {
                             if (meal['isGroup'] == true) {
@@ -2388,13 +2395,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             _tabController.animateTo(1); // Go to Main tab to add more
                           }
                         },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.add_circle_outline),
+                            const SizedBox(height: 6),
+                            Text(S.of(context).addAnother, textAlign: TextAlign.center),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.edit_outlined),
-                        label: Text(S.of(context).editMeal),
+                      child: OutlinedButton(
                         onPressed: () async {
                           final updated = await showDialog<Map<String, dynamic>>(
                             context: context,
@@ -2512,13 +2525,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             }
                           }
                         },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.edit_outlined),
+                            const SizedBox(height: 6),
+                            Text(S.of(context).editMeal, textAlign: TextAlign.center),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.delete_outline),
-                        label: Text(S.of(context).delete),
+                      child: FilledButton(
                         style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
                         onPressed: () async {
                           final ok = await showDialog<bool>(
@@ -2556,6 +2575,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             }
                           }
                         },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.delete_outline),
+                            const SizedBox(height: 6),
+                            Text(S.of(context).delete, textAlign: TextAlign.center),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -3709,7 +3736,7 @@ class S {
   String get mealDetails => _code == 'fr' ? 'Détails du repas' : 'Meal details';
   String get meal => _code == 'fr' ? 'Repas' : 'Meal';
   String get edit => _code == 'fr' ? 'Modifier' : 'Edit';
-  String get editMeal => _code == 'fr' ? 'Modifier le repas' : 'Edit meal';
+  String get editMeal => _code == 'fr' ? 'Modifier' : 'Edit'; // from Edit meal to Edit
   String get name => _code == 'fr' ? 'Nom' : 'Name';
   String get kcalLabel => 'Kcal';
   String get carbsLabel => _code == 'fr' ? 'Glucides (g)' : 'Carbs (g)';
@@ -3726,7 +3753,7 @@ class S {
   String get finishMeal => _code == 'fr' ? 'Terminer le repas' : 'Finish meal';
   String get restoreDefaults => _code == 'fr' ? 'Restaurer les valeurs par défaut' : 'Restore defaults';
   String get addAnotherQ => _code == 'fr' ? 'Ajouter un autre aliment à ce repas ?' : 'Add another item to this meal?';
-  String get addAnother => _code == 'fr' ? 'Ajouter un autre' : 'Add another';
+  String get addAnother => _code == 'fr' ? 'Ajouter plus' : 'Add more';
   String get notNow => _code == 'fr' ? 'Pas maintenant' : 'Not now';
   String get mealStarted => _code == 'fr' ? 'Nouveau repas en cours. Ajoutez d’autres éléments.' : 'Meal started. Add more items.';
   String itemsInMeal(int n) => _code == 'fr' ? '$n éléments' : '$n items';
