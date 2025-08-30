@@ -512,43 +512,61 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.info),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 320),
-                child: Markdown(
-                  data: md,
-                  shrinkWrap: true,
-                  onTapLink: (text, href, title) async {
-                    if (href == null) return;
-                    try { await launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication); } catch (_) {}
-                  },
+      builder: (ctx) {
+        final scrollCtrl = ScrollController();
+        final maxHeight = MediaQuery.of(ctx).size.height * 0.6; // responsive height for high-DPI
+        final dialogWidth = MediaQuery.of(ctx).size.width.clamp(320.0, 520.0);
+        return AlertDialog(
+          title: Text(s.info),
+          content: SizedBox(
+            width: dialogWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxHeight),
+                  child: Scrollbar(
+                    controller: scrollCtrl,
+                    interactive: true,
+                    thumbVisibility: true,
+                    thickness: 6,
+                    radius: const Radius.circular(8),
+                    child: SingleChildScrollView(
+                      controller: scrollCtrl,
+                      physics: const ClampingScrollPhysics(),
+                      padding: const EdgeInsets.only(right: 8),
+                      child: MarkdownBody(
+                        data: md,
+                        onTapLink: (text, href, title) async {
+                          if (href == null) return;
+                          try {
+                            await launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
+                          } catch (_) {}
+                        },
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-        StatefulBuilder(
-                builder: (ctx2, setSB) => CheckboxListTile(
-                  value: hideForever,
-                  onChanged: (v) => setSB(() => hideForever = v ?? false),
-          title: Text(S.of(context).hideForever),
-                  contentPadding: EdgeInsets.zero,
+                const SizedBox(height: 8),
+                StatefulBuilder(
+                  builder: (ctx2, setSB) => CheckboxListTile(
+                    value: hideForever,
+                    onChanged: (v) => setSB(() => hideForever = v ?? false),
+                    title: Text(S.of(context).hideForever),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(s.ok),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(s.ok),
+            ),
+          ],
+        );
+      },
     );
     if (hideForever) {
       final prefs = await SharedPreferences.getInstance();
