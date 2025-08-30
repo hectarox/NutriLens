@@ -237,18 +237,18 @@ class _LoginScreenState extends State<LoginScreen> {
         'Content-Type': 'application/json',
       }, body: jsonEncode({ 'username': _u.text.trim(), 'password': _p.text }));
       if (resp.statusCode != 200) {
-        setState(() { _error = 'Login failed (${resp.statusCode})'; });
+        setState(() { _error = S.of(context).loginFailedCode(resp.statusCode); });
         return;
       }
       final jsonBody = json.decode(resp.body) as Map;
       if (jsonBody['ok'] != true) {
-        setState(() { _error = (jsonBody['error']?.toString() ?? 'Login error'); });
+  setState(() { _error = (jsonBody['error']?.toString() ?? S.of(context).loginError); });
         return;
       }
       final token = jsonBody['token']?.toString();
       final force = jsonBody['forcePasswordReset'] == true;
       if (token == null || token.isEmpty) {
-        setState(() { _error = 'No token received'; });
+  setState(() { _error = S.of(context).noTokenReceived; });
         return;
       }
       await authState.setToken(token);
@@ -259,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
       }
     } catch (e) {
-      setState(() { _error = 'Network error'; });
+      setState(() { _error = S.of(context).networkError; });
     } finally {
       if (mounted) setState(() { _busy = false; });
     }
@@ -269,7 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text('${s.appTitle} • Login')),
+  appBar: AppBar(title: Text('${s.appTitle} • ${s.login}')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -282,38 +282,35 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   TextFormField(
                     controller: _u,
-                    decoration: const InputDecoration(labelText: 'Username'),
-                    validator: (v) => (v==null||v.trim().isEmpty) ? 'Required' : null,
+                    decoration: InputDecoration(labelText: s.username),
+                    validator: (v) => (v==null||v.trim().isEmpty) ? s.required : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _p,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password'),
-                    validator: (v) => (v==null||v.isEmpty) ? 'Required' : null,
+                    decoration: InputDecoration(labelText: s.password),
+                    validator: (v) => (v==null||v.isEmpty) ? s.required : null,
                   ),
                   const SizedBox(height: 16),
                   if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: _busy ? null : _login,
-                    child: _busy ? const SizedBox(width: 18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Text('Login'),
+                    child: _busy ? const SizedBox(width: 18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : Text(s.login),
                   ),
                   const SizedBox(height: 24),
-                  const Text(
-                    'To sign up for this beta, please request access',
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(s.betaSignup, textAlign: TextAlign.center),
                   const SizedBox(height: 8),
                   IconButton(
-                    tooltip: 'Join our Discord',
+                    tooltip: s.joinDiscordAction,
                     iconSize: 28,
                     onPressed: () async {
                       final uri = Uri.parse('https://discord.gg/8bDDqbvr8K');
                       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Could not open Discord')),
+                            SnackBar(content: Text(s.openDiscordFailed)),
                           );
                         }
                       }
@@ -344,8 +341,8 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   String? _error;
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_p1.text != _p2.text) { setState((){_error='Passwords do not match';}); return; }
+  if (!_formKey.currentState!.validate()) return;
+  if (_p1.text != _p2.text) { setState((){_error=S.of(context).passwordsDoNotMatch;}); return; }
     setState(() { _busy = true; _error = null; });
     try {
   final uri = Uri.parse('$kDefaultBaseUrl/auth/set-password');
@@ -354,18 +351,18 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
         if (authState.token != null) 'Authorization': 'Bearer ${authState.token}',
       }, body: jsonEncode({ 'newPassword': _p1.text }));
       if (resp.statusCode != 200) {
-        setState(() { _error = 'Failed (${resp.statusCode})'; });
+        setState(() { _error = S.of(context).failedWithCode(resp.statusCode); });
         return;
       }
       final body = json.decode(resp.body) as Map;
       if (body['ok'] != true) {
-        setState(() { _error = (body['error']?.toString() ?? 'Error'); });
+        setState(() { _error = (body['error']?.toString() ?? S.of(context).error); });
         return;
       }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
     } catch (e) {
-      setState(() { _error = 'Network error'; });
+      setState(() { _error = S.of(context).networkError; });
     } finally {
       if (mounted) setState(() { _busy = false; });
     }
@@ -375,7 +372,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text('${s.appTitle} • Set password')),
+  appBar: AppBar(title: Text('${s.appTitle} • ${s.setPasswordTitle}')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -389,15 +386,15 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                   TextFormField(
                     controller: _p1,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'New password'),
-                    validator: (v) => (v==null||v.length<6) ? 'Min 6 chars' : null,
+                    decoration: InputDecoration(labelText: s.newPassword),
+                    validator: (v) => (v==null||v.length<6) ? s.min6 : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _p2,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Confirm password'),
-                    validator: (v) => (v==null||v.length<6) ? 'Min 6 chars' : null,
+                    decoration: InputDecoration(labelText: s.confirmPassword),
+                    validator: (v) => (v==null||v.length<6) ? s.min6 : null,
                   ),
                   const SizedBox(height: 16),
                   if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
@@ -447,6 +444,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Announcement
   bool _announcementChecked = false;
   bool _announcementsDisabled = false;
+  // Queue & notifications
+  final List<Map<String, dynamic>> _queue = [];
+  final List<Map<String, dynamic>> _notifications = [];
+  bool _queueMode = false;
 
   @override
   void initState() {
@@ -566,6 +567,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
   _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
+  _queueMode = prefs.getBool('queue_mode_enabled') ?? true;
     });
   }
 
@@ -656,6 +658,77 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await prefs.setString('history_json', json.encode(serializable));
   }
 
+  // Queue & notifications UI
+  void _addNotification(String msg) {
+    setState(() {
+      _notifications.insert(0, {
+        'time': DateTime.now(),
+        'message': msg,
+      });
+      if (_notifications.length > 50) _notifications.removeLast();
+    });
+  }
+
+  void _openQueue() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(S.of(context).backgroundQueue, style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 8),
+                if (_queue.isEmpty) Text(S.of(context).noPendingJobs),
+                if (_queue.isNotEmpty)
+                  ..._queue.map((j) {
+                    final created = j['createdAt'] as DateTime? ?? DateTime.now();
+                    final img = j['imagePath'] as String?;
+                    final desc = j['description'] as String?;
+                            final status = j['status']?.toString() ?? 'pending';
+                            final statusLabel = status == 'error' ? S.of(context).statusError : S.of(context).statusPending;
+                    return ListTile(
+                      leading: img != null && img.isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(File(img), width: 40, height: 40, fit: BoxFit.cover),
+                            )
+                          : const Icon(Icons.image_not_supported),
+                              title: Text(desc?.isNotEmpty == true ? desc! : S.of(context).noDescription),
+                              subtitle: Text('#${j['id']} • ${_formatTimeShort(created)} • $statusLabel'),
+                    );
+                  }),
+                const Divider(),
+                Text(S.of(context).notifications, style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                if (_notifications.isEmpty) Text(S.of(context).noNotificationsYet),
+                if (_notifications.isNotEmpty)
+                  SizedBox(
+                    height: 200,
+                    child: ListView(
+                      children: _notifications.map((n) {
+                        final t = n['time'] as DateTime? ?? DateTime.now();
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.notifications),
+                          title: Text(n['message']?.toString() ?? ''),
+                          subtitle: Text(_formatTimeShort(t)),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _ensureHealthConfigured() async {
     if (_healthConfigured) return;
     await _health.configure();
@@ -705,39 +778,69 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _sendMessage() async {
-  if (_image == null && _controller.text.isEmpty) {
+  // _sendMessage removed in favor of _sendOrQueue()
+
+  String _newJobId() => 'job_${DateTime.now().microsecondsSinceEpoch}_${DateTime.now().millisecondsSinceEpoch % 10000}';
+
+  Future<void> _sendOrQueue() async {
+    final capturedImage = _image;
+    final capturedText = _controller.text;
+    if (capturedImage == null && capturedText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please provide a message or an image.')),
+        SnackBar(content: Text(S.of(context).provideMsgOrImage)),
       );
       return;
     }
+    if (_queueMode) {
+      final jobId = _newJobId();
+      setState(() {
+        _queue.add({
+          'id': jobId,
+          'imagePath': capturedImage?.path,
+          'description': capturedText,
+          'createdAt': DateTime.now(),
+          'status': 'pending',
+        });
+        _image = null;
+        _controller.clear();
+      });
+      // ignore: discarded_futures
+      _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+  _addNotification(S.of(context).queuedRequest(jobId));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+    } else {
+      setState(() => _loading = true);
+      try {
+        await _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false);
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+    }
+  }
 
-  final uri = Uri.parse('${_baseUrl()}/data');
+  Future<void> _sendMessageCore({required XFile? image, required String text, required bool useFlash, String? jobId}) async {
+    final uri = Uri.parse('${_baseUrl()}/data${useFlash ? '?flash=1' : ''}');
     final request = http.MultipartRequest('POST', uri)
-      ..fields['message'] = _controller.text;
-    // Attach shared-secret token required by server
+      ..fields['message'] = text;
     request.headers['x-app-token'] = 'FromHectaroxWithLove';
-    // Provide locale hint to backend for consistent language
     final _lang = S.of(context).locale.languageCode;
     request.headers['Accept-Language'] = _lang;
     request.fields['lang'] = _lang;
     if (authState.token != null) {
       request.headers['Authorization'] = 'Bearer ${authState.token}';
     }
-
-    if (_image != null) {
+    if (image != null) {
       request.files.add(await http.MultipartFile.fromPath(
         'image',
-        _image!.path,
-        contentType: MediaType.parse(lookupMimeType(_image!.path) ?? 'application/octet-stream'),
+        image.path,
+        contentType: MediaType.parse(lookupMimeType(image.path) ?? 'application/octet-stream'),
       ));
     }
-
-    setState(() => _loading = true);
+    http.StreamedResponse? response;
+    String responseBody = '';
     try {
-      final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
+      response = await request.send();
+      responseBody = await response.stream.bytesToString();
 
   if (response.statusCode == 200) {
   String pretty;
@@ -856,10 +959,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         }
 
         final newMeal = {
-          'image': _image,
-          'imagePath': _image?.path,
-          'description': _controller.text,
-          'name': mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
+          'image': image,
+          'imagePath': image?.path,
+          'description': text,
+          'name': mealName ?? (text.isNotEmpty ? text : null),
           // Prefer pretty-printed, locale-normalized JSON when available
           'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
           'structured': structured,
@@ -874,6 +977,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _resultText = pretty;
           _history.add(newMeal);
           _pruneHistory();
+          if (jobId != null) {
+            final idx = _queue.indexWhere((j) => j['id'] == jobId);
+            if (idx >= 0) _queue.removeAt(idx);
+          }
         });
     await _saveHistory();
 
@@ -886,13 +993,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         // Notify, reset composer, and show the result in History so users see success
   if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Result saved to History')),
+            SnackBar(content: Text(S.of(context).resultSaved)),
           );
-          setState(() {
-            _image = null;
-            _controller.clear();
-          });
-          _tabController.animateTo(0);
+          if (jobId == null) {
+            setState(() {
+              _image = null;
+              _controller.clear();
+            });
+            _tabController.animateTo(0);
+          }
+          _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
           // Open details after the tab switches
           Future.delayed(const Duration(milliseconds: 200), () {
             if (mounted) _showMealDetails(newMeal);
@@ -940,7 +1050,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 carbohydrates: carbs?.toDouble(),
                 protein: protein?.toDouble(),
                 fatTotal: fat?.toDouble(),
-                name: mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
+                name: mealName ?? (text.isNotEmpty ? text : null),
               );
               if (mounted) {
                 setState(() => _healthAuthorized = true);
@@ -972,7 +1082,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             serverMsg = decoded['error'] as String;
           }
         } catch (_) {}
-    final is50x = response.statusCode == 503 || response.statusCode == 500;
+  final is50x = response.statusCode == 503 || response.statusCode == 500;
     final s = S.of(context);
     final msg = (serverMsg != null && serverMsg.isNotEmpty)
       ? serverMsg
@@ -980,6 +1090,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         ? s.aiOverloaded
         : s.requestFailedWithCode(response.statusCode));
         if (mounted) {
+          if (jobId != null) {
+            final idx = _queue.indexWhere((j) => j['id'] == jobId);
+            if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
+            _addNotification('Request failed (#$jobId): $msg');
+          }
           if (is50x) {
             // Show a popup dialog to switch to flash model
       showDialog(
@@ -1002,7 +1117,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   FilledButton(
                     onPressed: () async {
                       Navigator.of(ctx).pop();
-                      await _sendMessageWithModel(useFlash: true);
+                      await _sendMessageCore(image: image, text: text, useFlash: true, jobId: jobId);
                     },
           child: Text(s.useFlash),
                   ),
@@ -1018,241 +1133,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Service is currently unavailable, please try again later.')),
+        SnackBar(content: Text(S.of(context).serviceUnavailable)),
       );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _sendMessageWithModel({required bool useFlash}) async {
-    // Same as _sendMessage but adds a query to request the flash model for this call
-    if (_image == null && _controller.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please provide a message or an image.')),
-      );
-      return;
-    }
-    final uri = Uri.parse('${_baseUrl()}/data?flash=${useFlash ? '1' : '0'}');
-    final request = http.MultipartRequest('POST', uri)
-      ..fields['message'] = _controller.text;
-    request.headers['x-app-token'] = 'FromHectaroxWithLove';
-    final _lang = S.of(context).locale.languageCode;
-    request.headers['Accept-Language'] = _lang;
-    request.fields['lang'] = _lang;
-    if (authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
-    if (_image != null) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'image',
-        _image!.path,
-        contentType: MediaType.parse(lookupMimeType(_image!.path) ?? 'application/octet-stream'),
-      ));
-    }
-    if (mounted) setState(() => _loading = true);
-    try {
-      final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
-      if (response.statusCode == 200) {
-        // Parse response like normal
-        String pretty;
-        try {
-          final decoded = json.decode(responseBody);
-          if (decoded is Map && decoded['ok'] == true) {
-            final data = decoded['data'];
-            if (data is String) {
-              pretty = data;
-            } else {
-              pretty = const JsonEncoder.withIndent('  ').convert(data);
-            }
-          } else if (decoded is Map && decoded.containsKey('response')) {
-            pretty = decoded['response'].toString();
-          } else {
-            pretty = responseBody;
-          }
-        } catch (_) {
-          pretty = responseBody;
-        }
-
-  Map<String, dynamic>? structured;
-        int? kcal;
-        int? carbs;
-        int? protein;
-        int? fat;
-        String? mealName;
-        try {
-          final decoded = json.decode(responseBody);
-          if (decoded is Map && decoded['ok'] == true) {
-            if (decoded['data'] is Map) {
-              structured = Map<String, dynamic>.from(decoded['data'] as Map);
-            } else if (decoded['data'] is String) {
-              // Data is plain text; keep structured null and rely on pretty text
-              structured = null;
-            }
-          } else if (decoded is Map) {
-            // Some servers may directly return the object
-            structured = Map<String, dynamic>.from(decoded);
-          }
-        } catch (_) {}
-        if (structured != null) {
-          structured = _localizedStructured(structured);
-          mealName = structured['Name']?.toString() ?? structured["Nom de l'aliment"]?.toString() ?? structured['name']?.toString();
-        }
-        final textSource = structured != null ? jsonEncode(structured) : pretty;
-        final kcalMatch = RegExp(r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)', caseSensitive: false).firstMatch(textSource);
-        if (kcalMatch != null) {
-          final raw = kcalMatch.group(1)!.replaceAll(',', '.');
-          final d = double.tryParse(raw);
-          if (d != null) kcal = d.round();
-        } else if (structured != null) {
-          final calVal = structured['Calories'] ?? structured['kcal'] ?? structured['calories'];
-          if (calVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(calVal.toString());
-            if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
-              if (d != null) kcal = d.round();
-            }
-          }
-        }
-        final carbsMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(carb|glucid\w*)', caseSensitive: false).firstMatch(textSource);
-        if (carbsMatch != null) {
-          final raw = carbsMatch.group(1)!.replaceAll(',', '.');
-          final d = double.tryParse(raw);
-          if (d != null) carbs = d.round();
-        } else if (structured != null) {
-          final cVal = structured['Glucides'] ?? structured['carbs'] ?? structured['Carbs'];
-          if (cVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(cVal.toString());
-            if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
-              if (d != null) carbs = d.round();
-            }
-          }
-        }
-        final proteinMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(protein|prot\w*)', caseSensitive: false).firstMatch(textSource);
-        if (proteinMatch != null) {
-          final raw = proteinMatch.group(1)!.replaceAll(',', '.');
-          final d = double.tryParse(raw);
-          if (d != null) protein = d.round();
-        } else if (structured != null) {
-          final pVal = structured['Proteines'] ?? structured['protein'] ?? structured['Proteins'];
-          if (pVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(pVal.toString());
-            if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
-              if (d != null) protein = d.round();
-            }
-          }
-        }
-        final fatMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(fat|lipid\w*|gras)', caseSensitive: false).firstMatch(textSource);
-        if (fatMatch != null) {
-          final raw = fatMatch.group(1)!.replaceAll(',', '.');
-          final d = double.tryParse(raw);
-          if (d != null) fat = d.round();
-        } else if (structured != null) {
-          final fVal = structured['Lipides'] ?? structured['fat'] ?? structured['Fats'];
-          if (fVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(fVal.toString());
-            if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
-              if (d != null) fat = d.round();
-            }
-          }
-        }
-
-        final newMeal = {
-          'image': _image,
-          'imagePath': _image?.path,
-          'description': _controller.text,
-          'name': mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
-          'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
-          'structured': structured,
-          'kcal': kcal,
-          'carbs': carbs,
-          'protein': protein,
-          'fat': fat,
-          'time': DateTime.now(),
-          'hcWritten': false,
-        };
-        setState(() {
-          _resultText = pretty;
-          _history.add(newMeal);
-          _pruneHistory();
-        });
-        await _saveHistory();
-
-        // If user is building a meal, append this item into the active group
-        if (_pendingMealGroup != null) {
-          _appendToGroup(_pendingMealGroup!, newMeal);
-          await _saveHistory();
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Result saved to History')),
-          );
-          setState(() {
-            _image = null;
-            _controller.clear();
-          });
-          _tabController.animateTo(0);
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) _showMealDetails(newMeal);
-          });
-        }
-        // Optional write to Health Connect
-        try {
-          await _ensureHealthConfigured();
-          if (mounted && (kcal != null || carbs != null || protein != null || fat != null)) {
-            if (!kIsWeb && Platform.isAndroid) {
-              final status = await _health.getHealthConnectSdkStatus();
-              if (mounted) setState(() => _hcSdkStatus = status);
-              if (status != HealthConnectSdkStatus.sdkAvailable) return;
-            }
-            final ok = await _health.requestAuthorization(
-              [HealthDataType.NUTRITION],
-              permissions: [HealthDataAccess.READ_WRITE],
-            );
-            if (ok) {
-              final start = DateTime.now();
-              final end = start.add(const Duration(minutes: 1));
-              newMeal['hcStart'] = start;
-              newMeal['hcEnd'] = end;
-              final written = await _health.writeMeal(
-                mealType: MealType.UNKNOWN,
-                startTime: start,
-                endTime: end,
-                caloriesConsumed: kcal?.toDouble(),
-                carbohydrates: carbs?.toDouble(),
-                protein: protein?.toDouble(),
-                fatTotal: fat?.toDouble(),
-                name: mealName ?? (_controller.text.isNotEmpty ? _controller.text : null),
-              );
-              if (mounted) {
-                setState(() => _healthAuthorized = true);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(written ? S.of(context).hcWriteOk : S.of(context).hcWriteFail)),
-                );
-                if (written) {
-                  setState(() { newMeal['hcWritten'] = true; });
-                  await _saveHistory();
-                } else {
-                  setState(() => _healthLastError = 'writeMeal returned false');
-                }
-              }
-            }
-          }
-        } catch (e) {
-          if (mounted) setState(() => _healthLastError = e.toString());
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Flash retry failed')));
+      if (jobId != null) {
+        final idx = _queue.indexWhere((j) => j['id'] == jobId);
+        if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
+        _addNotification('Request failed (#$jobId)');
       }
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Flash retry failed')));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      // _loading handled by caller for non-queue mode
     }
   }
+
+  // _sendMessageWithModel removed; flash path reuses _sendMessageCore with useFlash=true.
 
   Future<void> _sendMessageFlashDebug() async {
     // Sends the same request with flash=1 and shows the raw response body in a dialog for debugging.
@@ -1478,6 +1371,31 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           onPressed: _openInfo,
         ),
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                tooltip: S.of(context).queueAndNotifications,
+                onPressed: _openQueue,
+                icon: const Icon(Icons.notifications_outlined),
+              ),
+              if (_queue.isNotEmpty)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: scheme.error,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _queue.length.toString(),
+                      style: TextStyle(color: scheme.onError, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: s.settings,
             onPressed: _openSettings,
@@ -1595,7 +1513,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.logout),
-                title: const Text('Log out'),
+                title: Text(S.of(context).logout),
                 onTap: () async {
                   await authState.setToken(null);
                   if (mounted) {
@@ -1644,7 +1562,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       final bytes = utf8.encode(raw);
       final filename = 'nutrilens-history-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.json';
       final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Export history',
+        dialogTitle: S.of(context).exportHistory,
         fileName: filename,
         type: FileType.custom,
         allowedExtensions: ['json'],
@@ -1678,7 +1596,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (confirm != true) return;
     try {
       final res = await FilePicker.platform.pickFiles(
-        dialogTitle: 'Import history',
+        dialogTitle: S.of(context).importHistory,
         type: FileType.custom,
         allowedExtensions: ['json'],
         withData: true,
@@ -1889,6 +1807,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 12),
+                CheckboxListTile(
+                  value: _queueMode,
+                  onChanged: (v) async {
+                    final enabled = v ?? false;
+                    setState(() => _queueMode = enabled);
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('queue_mode_enabled', enabled);
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(S.of(context).queueInBackground),
+                  subtitle: Text(S.of(context).queueInBackgroundHint),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                const SizedBox(height: 4),
                 Wrap(
                   spacing: 12,
                   runSpacing: 8,
@@ -1916,9 +1848,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       label: Text(s.pickImage),
                     ),
                     FilledButton.icon(
-                      onPressed: _loading ? null : _sendMessage,
+                      onPressed: (_loading && !_queueMode) ? null : _sendOrQueue,
                       icon: const Icon(Icons.send_rounded),
-                      label: Text(_loading ? s.sending : s.sendToAI),
+                      label: Text((_loading && !_queueMode) ? s.sending : s.sendToAI),
                     ),
                   ],
                 ),
@@ -1952,7 +1884,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final product = await _fetchOffProduct(code);
     if (product == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produit non trouvé')));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).productNotFound)));
       return;
     }
     // Ask user quantity: empty for full package, or custom weight
@@ -1972,7 +1904,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final newMeal = {
       'image': null,
       'imagePath': null,
-      'description': product.name ?? 'Packaged food',
+  'description': product.name ?? S.of(context).packagedFood,
       'name': product.name,
       'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
       'structured': localizedStructured,
@@ -2043,18 +1975,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Quantité (g/ml)'),
+        title: Text(s.quantityTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(defaultServing != null
-                ? 'Laissez vide pour quantité par défaut (${defaultServing}g), ou entrez une quantité personnalisée.'
-                : 'Laissez vide pour quantité totale du paquet, ou entrez une quantité personnalisée.'),
+                ? s.quantityHelpDefaultServing(defaultServing)
+                : s.quantityHelpPackage),
             const SizedBox(height: 8),
             TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(hintText: 'Ex: 330'),
+              decoration: InputDecoration(hintText: s.exampleNumber),
             ),
           ],
         ),
@@ -2709,7 +2641,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final newMeal = {
       'image': null,
       'imagePath': null,
-      'description': data['name'],
+  'description': data['name'] ?? S.of(context).packagedFood,
       'name': data['name'],
       'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
       'structured': localizedStructured,
@@ -2974,7 +2906,7 @@ class _BarcodeScannerScreenState extends State<_BarcodeScannerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanner le code-barres')),
+      appBar: AppBar(title: Text(S.of(context).scanBarcodeTitle)),
       body: MobileScanner(
         onDetect: (capture) {
           if (_locked) return;
@@ -3809,6 +3741,7 @@ class S {
   String get carbsSuffix => _code == 'fr' ? 'g glucides' : 'g carbs';
   String get proteinSuffix => _code == 'fr' ? 'g protéines' : 'g protein';
   String get fatSuffix => _code == 'fr' ? 'g lipides' : 'g fat';
+  String get packagedFood => _code == 'fr' ? 'Produit emballé' : 'Packaged food';
 
   // Info menu
   String get info => _code == 'fr' ? 'Infos' : 'Info';
@@ -3825,6 +3758,55 @@ class S {
   String get disableAnnouncementsHint => _code == 'fr'
       ? 'Ne jamais afficher les messages d\'administration au démarrage'
       : 'Never show admin messages on startup';
+  
+  // Queue & notifications
+  String get queueAndNotifications => _code == 'fr' ? 'File d\'attente et notifications' : 'Queue & notifications';
+  String get backgroundQueue => _code == 'fr' ? 'File d\'attente en arrière-plan' : 'Background queue';
+  String get noPendingJobs => _code == 'fr' ? 'Aucune tâche en attente' : 'No pending jobs';
+  String get notifications => _code == 'fr' ? 'Notifications' : 'Notifications';
+  String get noNotificationsYet => _code == 'fr' ? 'Aucune notification pour l\'instant' : 'No notifications yet';
+  String get statusPending => _code == 'fr' ? 'en attente' : 'pending';
+  String get statusError => _code == 'fr' ? 'erreur' : 'error';
+  String get queueInBackground => _code == 'fr' ? 'Mettre en file d\'attente' : 'Queue in background';
+  String get queueInBackgroundHint => _code == 'fr' ? 'Envoyer et continuer. Vous serez notifié quand c\'est prêt.' : 'Send and continue. Get notified when ready.';
+  String queuedRequest(String id) => _code == 'fr' ? 'Requête mise en file d\'attente (#$id)' : 'Queued a request (#$id)';
+  String get queuedWorking => _code == 'fr' ? 'En file d\'attente : traitement en arrière‑plan' : 'Queued: working in background';
+  String get resultSaved => _code == 'fr' ? 'Résultat enregistré dans l\'historique' : 'Result saved to History';
+  String get serviceUnavailable => _code == 'fr' ? 'Le service est indisponible, réessayez plus tard.' : 'Service is currently unavailable, please try again later.';
+
+  // Barcode & quantity dialogs
+  String get productNotFound => _code == 'fr' ? 'Produit non trouvé' : 'Product not found';
+  String get quantityTitle => _code == 'fr' ? 'Quantité (g/ml)' : 'Quantity (g/ml)';
+  String quantityHelpDefaultServing(int g) => _code == 'fr'
+    ? 'Laissez vide pour la quantité par défaut (${g}g), ou entrez une quantité personnalisée.'
+    : 'Leave empty for default quantity (${g}g), or enter a custom amount.';
+  String get quantityHelpPackage => _code == 'fr'
+    ? 'Laissez vide pour la quantité totale du paquet, ou entrez une quantité personnalisée.'
+    : 'Leave empty for full package quantity, or enter a custom amount.';
+  String get exampleNumber => _code == 'fr' ? 'Ex: 330' : 'e.g. 330';
+  String get scanBarcodeTitle => _code == 'fr' ? 'Scanner le code‑barres' : 'Scan barcode';
+
+  // Auth & account
+  String get login => _code == 'fr' ? 'Connexion' : 'Login';
+  String get username => _code == 'fr' ? 'Nom d\'utilisateur' : 'Username';
+  String get password => _code == 'fr' ? 'Mot de passe' : 'Password';
+  String get required => _code == 'fr' ? 'Obligatoire' : 'Required';
+  String loginFailedCode(int c) => _code == 'fr' ? 'Échec de connexion ($c)' : 'Login failed ($c)';
+  String get loginError => _code == 'fr' ? 'Erreur de connexion' : 'Login error';
+  String get noTokenReceived => _code == 'fr' ? 'Aucun jeton reçu' : 'No token received';
+  String get networkError => _code == 'fr' ? 'Erreur réseau' : 'Network error';
+  String get betaSignup => _code == 'fr' ? 'Pour participer à la bêta, demandez l\'accès.' : 'To sign up for this beta, please request access';
+  String get joinDiscordAction => _code == 'fr' ? 'Rejoindre le Discord' : 'Join our Discord';
+  String get openDiscordFailed => _code == 'fr' ? 'Impossible d\'ouvrir Discord' : 'Could not open Discord';
+  String get logout => _code == 'fr' ? 'Se déconnecter' : 'Log out';
+
+  // Set password
+  String get setPasswordTitle => _code == 'fr' ? 'Définir le mot de passe' : 'Set password';
+  String get newPassword => _code == 'fr' ? 'Nouveau mot de passe' : 'New password';
+  String get confirmPassword => _code == 'fr' ? 'Confirmer le mot de passe' : 'Confirm password';
+  String get min6 => _code == 'fr' ? '6 caractères minimum' : 'Min 6 chars';
+  String failedWithCode(int c) => _code == 'fr' ? 'Échec ($c)' : 'Failed ($c)';
+  String get passwordsDoNotMatch => _code == 'fr' ? 'Les mots de passe ne correspondent pas' : 'Passwords do not match';
 
   // Export/Import
   String get exportHistory => _code == 'fr' ? 'Exporter l\'historique' : 'Export history';
