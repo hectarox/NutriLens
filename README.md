@@ -1,5 +1,7 @@
 # NutriLens app + backend
 
+You can join us here! [![Discord](https://img.shields.io/discord/1409336674370195538?logo=discord&label=NutriLens)](https://discord.gg/kpeGuSax9G)
+
 ## Backend setup
 
 1) Configure environment in `.env` (create it if missing):
