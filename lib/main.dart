@@ -485,7 +485,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (prefs.getBool('disable_announcements_globally') == true) return;
     try {
       final localeCode = (S.of(context).locale.languageCode == 'fr') ? 'fr' : 'en';
-      final uri = Uri.parse('${_baseUrl()}/announcement?lang=$localeCode');
+    final uri = Uri.parse('${kDefaultBaseUrl}/announcement?lang=$localeCode');
       final res = await http.get(uri, headers: {
         'Accept-Language': localeCode,
       });
@@ -958,6 +958,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           }
         }
 
+        // Capture overall grams from AI output (structured or text)
+        final aiGrams = _extractGrams(structured, textSource);
+
         final newMeal = {
           'image': image,
           'imagePath': image?.path,
@@ -966,6 +969,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           // Prefer pretty-printed, locale-normalized JSON when available
           'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
           'structured': structured,
+          'grams': aiGrams,
           'kcal': kcal,
           'carbs': carbs,
           'protein': protein,
@@ -1314,6 +1318,56 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final s = v.toString();
     final m = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(s);
     if (m != null) return double.tryParse(m.group(0)!);
+    return null;
+  }
+
+  // --- Helpers to extract grams (overall weight) from AI outputs ---
+  int? _extractGrams(dynamic structured, String textSource) {
+    int? fromStructured(dynamic node) {
+      if (node is Map) {
+        for (final entry in node.entries) {
+          final k = entry.key.toString().toLowerCase();
+          if (k.contains('weight') || k.contains('poids')) {
+            final n = _numberFromAny(entry.value);
+            if (n != null) return n.round();
+          }
+          final inner = fromStructured(entry.value);
+          if (inner != null) return inner;
+        }
+      } else if (node is List) {
+        for (final e in node) {
+          final inner = fromStructured(e);
+          if (inner != null) return inner;
+        }
+      }
+      return null;
+    }
+
+    int? fromText(String s) {
+      final r1 = RegExp(r'(?:weight|poids)[^\d]{0,12}(\d{1,4}(?:[\.,]\d{1,2})?)\s*g', caseSensitive: false);
+      final m1 = r1.firstMatch(s);
+      if (m1 != null) {
+        final d = double.tryParse(m1.group(1)!.replaceAll(',', '.'));
+        if (d != null) return d.round();
+      }
+      final r2 = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g[^A-Za-z]{0,6}(?:weight|poids)', caseSensitive: false);
+      final m2 = r2.firstMatch(s);
+      if (m2 != null) {
+        final d = double.tryParse(m2.group(1)!.replaceAll(',', '.'));
+        if (d != null) return d.round();
+      }
+      return null;
+    }
+
+    return fromStructured(structured) ?? fromText(textSource);
+  }
+
+  double? _numberFromAny(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    final s = v.toString();
+    final m = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)').firstMatch(s);
+    if (m != null) return double.tryParse(m.group(1)!.replaceAll(',', '.'));
     return null;
   }
 
@@ -2417,13 +2471,24 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
                               final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
                               final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
-                              final gramsCtrl = TextEditingController(text: meal['grams']?.toString() ?? '');
+                              // Prefill grams with AI-provided value or, for groups, the combined sum of children
+                              int? defaultG = meal['grams'] as int?;
+                              if (defaultG == null && meal['isGroup'] == true && meal['children'] is List) {
+                                int sum = 0;
+                                int count = 0;
+                                for (final c in (meal['children'] as List)) {
+                                  if (c is Map && c['grams'] is int) { sum += c['grams'] as int; count++; }
+                                }
+                                if (count > 0 && sum > 0) defaultG = sum;
+                              }
+                              final gramsCtrl = TextEditingController(text: defaultG?.toString() ?? '');
                               bool linkValues = true;
                               final oldK = meal['kcal'] as int?;
                               final oldC = meal['carbs'] as int?;
                               final oldP = meal['protein'] as int?;
                               final oldF = meal['fat'] as int?;
-                              final oldG = meal['grams'] as int?;
+                              // Use the AI/default grams or combined group grams as baseline when linking
+                              final int? oldG = defaultG;
                               return StatefulBuilder(
                                 builder: (context, setSB) => AlertDialog(
                                   title: Text(S.of(context).editMeal),
@@ -2455,7 +2520,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                       onPressed: () {
                                         setSB(() {
                                           nameCtrl.text = meal['name']?.toString() ?? '';
-                                          gramsCtrl.text = (meal['grams']?.toString() ?? '');
+                                          gramsCtrl.text = (defaultG?.toString() ?? '');
                                           kcalCtrl.text = (meal['kcal']?.toString() ?? '');
                                           carbsCtrl.text = (meal['carbs']?.toString() ?? '');
                                           proteinCtrl.text = (meal['protein']?.toString() ?? '');
@@ -2482,11 +2547,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                             factor = newF / oldF;
                                           } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
                                             factor = newK / oldK;
-                                          } else if (oldG != null && newG != null && oldG > 0 && newG != oldG) {
+                                          } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
                                             factor = newG / oldG;
                                           }
                                           if (factor != null) {
-                                            if (newG == null || newG == oldG) newG = oldG != null ? (oldG * factor).round() : null;
+                                            if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
                                             if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
                                             if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
                                             if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
@@ -3138,27 +3203,25 @@ class _FormattedResultCard extends StatelessWidget {
     }
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          title: Row(
+            children: [
+              Expanded(child: Text(S.of(context).result, style: theme.textTheme.titleMedium, overflow: TextOverflow.ellipsis)),
+              IconButton(
+                tooltip: S.of(context).copy,
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: resultText));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).copied)));
+                },
+                icon: const Icon(Icons.copy_all_outlined),
+              ),
+            ],
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
-            LayoutBuilder(builder: (context, constraints) {
-              return Row(
-                children: [
-                  Expanded(child: Text(S.of(context).result, style: theme.textTheme.titleMedium, overflow: TextOverflow.ellipsis)),
-                  IconButton(
-                    tooltip: S.of(context).copy,
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: resultText));
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).copied)));
-                    },
-                    icon: const Icon(Icons.copy_all_outlined),
-                  ),
-                ],
-              );
-            }),
-            // No extra spacing between title and results; center the content
             Align(
               alignment: Alignment.center,
               child: ConstrainedBox(
@@ -3396,13 +3459,24 @@ class _HistoryMealCard extends StatelessWidget {
                     final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
                     final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
                     final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
-                    final gramsCtrl = TextEditingController(text: meal['grams']?.toString() ?? '');
+                    // Prefill grams with AI-provided value or, for groups, the combined sum of children
+                    int? defaultG = meal['grams'] as int?;
+                    if (defaultG == null && meal['isGroup'] == true && meal['children'] is List) {
+                      int sum = 0;
+                      int count = 0;
+                      for (final c in (meal['children'] as List)) {
+                        if (c is Map && c['grams'] is int) { sum += c['grams'] as int; count++; }
+                      }
+                      if (count > 0 && sum > 0) defaultG = sum;
+                    }
+                    final gramsCtrl = TextEditingController(text: (defaultG?.toString() ?? ''));
                     bool linkValues = true;
                     final oldK = meal['kcal'] as int?;
                     final oldC = meal['carbs'] as int?;
                     final oldP = meal['protein'] as int?;
                     final oldF = meal['fat'] as int?;
-                    final oldG = meal['grams'] as int?;
+                    // Use AI/default grams or combined group grams as baseline when linking
+                    final int? oldG = defaultG;
                     return StatefulBuilder(
                       builder: (context, setSB) => AlertDialog(
                         title: Text(S.of(context).editMeal),
@@ -3434,7 +3508,7 @@ class _HistoryMealCard extends StatelessWidget {
                             onPressed: () {
                               setSB(() {
                                 nameCtrl.text = meal['name']?.toString() ?? '';
-                                gramsCtrl.text = (meal['grams']?.toString() ?? '');
+                                gramsCtrl.text = (defaultG?.toString() ?? '');
                                 kcalCtrl.text = (meal['kcal']?.toString() ?? '');
                                 carbsCtrl.text = (meal['carbs']?.toString() ?? '');
                                 proteinCtrl.text = (meal['protein']?.toString() ?? '');
@@ -3461,11 +3535,11 @@ class _HistoryMealCard extends StatelessWidget {
                                   factor = newF / oldF;
                                 } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
                                   factor = newK / oldK;
-                                } else if (oldG != null && newG != null && oldG > 0 && newG != oldG) {
+                                } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
                                   factor = newG / oldG;
                                 }
                                 if (factor != null) {
-                                  if (newG == null || newG == oldG) newG = oldG != null ? (oldG * factor).round() : null;
+                                  if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
                                   if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
                                   if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
                                   if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
