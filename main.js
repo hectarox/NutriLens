@@ -43,6 +43,10 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
   // Determine locale: explicit body.lang wins, then Accept-Language header, else English
   const acceptLang = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
   const locale = (lang && typeof lang === 'string' && lang.trim()) ? lang.trim().toLowerCase() : (acceptLang || 'en');
+  const isEnglishLocale = (
+    (typeof lang === 'string' && lang.trim().toLowerCase().startsWith('en')) ||
+    (typeof acceptLang === 'string' && acceptLang.startsWith('en'))
+  );
   const useFlash = String(req.query.flash || '0') === '1';
 
     if (!file && (!message || String(message).trim().length === 0)) {
@@ -102,10 +106,13 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
       }
       if ((text && text.trim()) || (data && Object.keys(data).length)) {
         let finalPayload = data ?? text;
-        try {
-          const normalized = await englishNormalizeWithFlash(genAI, finalPayload);
-          if (normalized) finalPayload = normalized;
-        } catch (_) { /* fallback to original */ }
+  // Only enforce English normalization when caller locale indicates English
+  if (isEnglishLocale) {
+          try {
+            const normalized = await englishNormalizeWithFlash(genAI, finalPayload);
+            if (normalized) finalPayload = normalized;
+          } catch (_) { /* fallback to original */ }
+        }
         await logRequestIp(req);
         return res.json({ ok: true, data: finalPayload });
       }
