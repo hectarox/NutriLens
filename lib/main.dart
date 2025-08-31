@@ -2377,6 +2377,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         ...((meal['children'] as List).cast<Map<String, dynamic>>()).map((child) {
                           final name = child['name'] ?? child['description'] ?? S.of(context).noDescription;
                           final kcal = child['kcal'] as int?;
+                          final carbs = child['carbs'] as int?;
+                          final protein = child['protein'] as int?;
+                          final fat = child['fat'] as int?;
+                          final grams = child['grams'] as int?;
                           final dt = _asDateTime(child['time']);
                           String? subtitle;
                           if (dt != null && kcal != null) {
@@ -2386,40 +2390,92 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           } else if (kcal != null) {
                             subtitle = '${kcal} ${S.of(context).kcalSuffix}';
                           }
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.fastfood),
-                            title: Text(name),
-                            subtitle: subtitle != null ? Text(subtitle) : null,
-                            trailing: IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              tooltip: S.of(context).remove,
-                              onPressed: () async {
-                                setState(() {
-                                  (meal['children'] as List).remove(child);
-                                  final restored = Map<String, dynamic>.from(child);
-                                  restored.remove('isGroup');
-                                  restored.remove('children');
-                                  restored['time'] = (restored['time'] is DateTime || restored['time'] is String)
-                                      ? restored['time']
-                                      : DateTime.now();
-                                  _history.add(restored);
-                                  _recomputeGroupSums(meal);
-                                });
-                                setLocal(() {});
-                                await _saveHistory();
-                                if ((meal['children'] as List).isEmpty && context.mounted) {
-                                  final idx = _history.indexOf(meal);
-                                  if (idx >= 0) {
-                                    setState(() {
-                                      _history.removeAt(idx);
-                                      if (identical(_pendingMealGroup, meal)) _pendingMealGroup = null;
-                                    });
-                                    await _saveHistory();
-                                  }
-                                  Navigator.pop(ctx);
-                                }
-                              },
+                          final imgPath = (child['image'] != null)
+                              ? (child['image'].path as String)
+                              : (child['imagePath'] is String ? child['imagePath'] as String : null);
+                          return Card(
+                            elevation: 0,
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: Theme(
+                              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                              child: ExpansionTile(
+                                leading: imgPath != null && imgPath.isNotEmpty
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.file(
+                                          File(imgPath),
+                                          width: 48,
+                                          height: 48,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    : const Icon(Icons.fastfood),
+                                title: Text(name),
+                                subtitle: subtitle != null ? Text(subtitle) : null,
+                                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                children: [
+                                  if (child['description'] != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8.0),
+                                      child: Text(child['description'], style: Theme.of(context).textTheme.bodyMedium),
+                                    ),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (kcal != null)
+                                        _Pill(icon: Icons.local_fire_department, label: "$kcal ${S.of(context).kcalSuffix}", color: Colors.redAccent),
+                                      if (carbs != null)
+                                        _Pill(icon: Icons.grain, label: "$carbs ${S.of(context).carbsSuffix}", color: _carbsColor(context)),
+                                      if (protein != null)
+                                        const SizedBox(height: 4),
+                                      if (protein != null)
+                                        _Pill(icon: Icons.egg_alt, label: "$protein ${S.of(context).proteinSuffix}", color: Colors.teal),
+                                      if (fat != null)
+                                        _Pill(icon: Icons.blur_on, label: "$fat ${S.of(context).fatSuffix}", color: Colors.purple),
+                                      if (grams != null)
+                                        _Pill(icon: Icons.scale, label: "$grams g", color: Theme.of(context).colorScheme.primary),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (child['result'] is String && (child['result'] as String).trim().isNotEmpty)
+                                    _FormattedResultCard(resultText: child['result']),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: OutlinedButton.icon(
+                                      icon: const Icon(Icons.remove_circle_outline),
+                                      label: Text(S.of(context).remove),
+                                      onPressed: () async {
+                                        setState(() {
+                                          (meal['children'] as List).remove(child);
+                                          final restored = Map<String, dynamic>.from(child);
+                                          restored.remove('isGroup');
+                                          restored.remove('children');
+                                          restored['time'] = (restored['time'] is DateTime || restored['time'] is String)
+                                              ? restored['time']
+                                              : DateTime.now();
+                                          _history.add(restored);
+                                          _recomputeGroupSums(meal);
+                                        });
+                                        setLocal(() {});
+                                        await _saveHistory();
+                                        if ((meal['children'] as List).isEmpty && context.mounted) {
+                                          final idx = _history.indexOf(meal);
+                                          if (idx >= 0) {
+                                            setState(() {
+                                              _history.removeAt(idx);
+                                              if (identical(_pendingMealGroup, meal)) _pendingMealGroup = null;
+                                            });
+                                            await _saveHistory();
+                                          }
+                                          Navigator.pop(ctx);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         }),
