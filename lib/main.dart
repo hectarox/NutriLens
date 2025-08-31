@@ -66,6 +66,13 @@ class AppSettings extends ChangeNotifier {
 
 final appSettings = AppSettings();
 String get kDefaultBaseUrl => dotenv.maybeGet('APP_BASE_URL') ?? 'http://141.145.210.115:3007';
+// When PASSWORD_AUTH=false in .env.client, the app skips password login
+bool get kPasswordAuthEnabled {
+  final v = dotenv.maybeGet('PASSWORD_AUTH') ?? dotenv.maybeGet('password_auth');
+  if (v == null) return true;
+  final s = v.toLowerCase();
+  return !(s == 'false' || s == '0' || s == 'off' || s == 'no');
+}
 class AuthState extends ChangeNotifier {
   String? _token;
   String? get token => _token;
@@ -210,7 +217,8 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (authState.token == null) return const LoginScreen();
+  if (!kPasswordAuthEnabled) return const MainScreen();
+  if (authState.token == null) return const LoginScreen();
     return const MainScreen();
   }
 }
@@ -844,7 +852,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final _lang = S.of(context).locale.languageCode;
     request.headers['Accept-Language'] = _lang;
     request.fields['lang'] = _lang;
-    if (authState.token != null) {
+    if (kPasswordAuthEnabled && authState.token != null) {
       request.headers['Authorization'] = 'Bearer ${authState.token}';
     }
     if (image != null) {
@@ -1183,8 +1191,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   final uri = Uri.parse('${_baseUrl()}/data?flash=0');
     final request = http.MultipartRequest('POST', uri)
       ..fields['message'] = _controller.text;
-    request.headers['x-app-token'] = 'FromHectaroxWithLove';
-    if (authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
+  request.headers['x-app-token'] = 'FromHectaroxWithLove';
+  if (kPasswordAuthEnabled && authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
     if (_image != null) {
       request.files.add(await http.MultipartFile.fromPath(
         'image',
@@ -1590,21 +1598,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     await _importHistory();
                   },
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: Text(S.of(context).logout),
-                  onTap: () async {
-                    await authState.setToken(null);
-                    if (mounted) {
-                      Navigator.pop(ctx);
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        (route) => false,
-                      );
-                    }
-                  },
-                ),
+                if (kPasswordAuthEnabled) ...[
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.logout),
+                    title: Text(S.of(context).logout),
+                    onTap: () async {
+                      await authState.setToken(null);
+                      if (mounted) {
+                        Navigator.pop(ctx);
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          (route) => false,
+                        );
+                      }
+                    },
+                  ),
+                ],
               ],
             ),
           ),

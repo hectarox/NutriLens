@@ -131,6 +131,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+// Feature flag: disable password (JWT) auth when PASSWORD_AUTH=false
+const PASSWORD_AUTH = (() => {
+  const v = String(process.env.PASSWORD_AUTH ?? process.env.password_auth ?? 'true').toLowerCase();
+  return !(v === 'false' || v === '0' || v === 'off' || v === 'no');
+})();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -579,11 +584,17 @@ app.post('/auth/set-password', authJwt, async (req, res) => {
 });
 
 // Existing endpoints: protect with both JWT (user logged-in) and app token for model calls
-app.get('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
-app.post('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
+if (PASSWORD_AUTH) {
+  app.get('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
+  app.post('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
+} else {
+  app.get('/ping', (req, res) => res.json({ ok:true, pong:true }));
+  app.post('/ping', (req, res) => res.json({ ok:true, pong:true }));
+}
 
 const upload = multer({ dest: 'uploads/' });
-app.post('/data', authJwt, requireToken, upload.single('image'), async (req, res) => {
+const modelGuards = PASSWORD_AUTH ? [authJwt, requireToken] : [requireToken];
+app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body || {};
     if (typeof message === 'string' && message.toLowerCase().includes('ping')) {
