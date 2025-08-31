@@ -101,6 +101,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
         try { data = JSON.parse(text); } catch (_) { data = null; }
       }
       if ((text && text.trim()) || (data && Object.keys(data).length)) {
+        await logRequestIp(req);
         return res.json({ ok: true, data: data ?? text });
       }
     }
@@ -275,10 +276,41 @@ async function bootstrapDb() {
     ) ENGINE=InnoDB;
   `);
 
+  // Logs of successful requests for reporting
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS request_logs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      ip VARCHAR(64) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_created_at (created_at),
+      INDEX idx_ip (ip)
+    ) ENGINE=InnoDB;
+  `);
+
   return pool;
 }
 
 let dbPoolPromise = bootstrapDb();
+
+// --------------------------
+// Helpers: client IP and logging
+// --------------------------
+function getClientIp(req) {
+  const xf = (req.get('x-forwarded-for') || '').split(',')[0].trim();
+  const ip = xf || req.ip || (req.socket && req.socket.remoteAddress) || '';
+  return String(ip).slice(0, 64);
+}
+
+async function logRequestIp(req) {
+  try {
+    const ip = getClientIp(req);
+    if (!ip) return;
+    const pool = await dbPoolPromise;
+    await pool.query('INSERT INTO request_logs (ip) VALUES (?)', [ip]);
+  } catch (e) {
+    try { console.warn('request ip log failed', e && e.message ? e.message : e); } catch (_) {}
+  }
+}
 
 // --------------------------
 // Auth helpers
@@ -412,6 +444,8 @@ app.get('/', requireAdmin, (req, res) => {
     <p>Mobile login: <code>POST /auth/login { username, password }</code></p>
     <p>Set password: <code>POST /auth/set-password (Bearer token) { newPassword }</code></p>
     <p>Announcement: <code>GET /announcement</code> returns <code>{ ok, markdown }</code></p>
+  <h2>Reports</h2>
+  <p><a href="/admin/ip-report" download>Download IP report (last 24h)</a></p>
     <script>
       const form = document.getElementById('inviteForm');
       form.addEventListener('submit', async (e) => {
@@ -598,10 +632,29 @@ app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body || {};
     if (typeof message === 'string' && message.toLowerCase().includes('ping')) {
+      await logRequestIp(req);
       return res.json({ ok: true, data: { echo: message, note: 'fast-path' } });
     }
   } catch (_) {}
   handleRequestWithRetry(req, res);
+});
+
+// Admin: downloadable IP report (last 24h)
+app.get('/admin/ip-report', requireAdmin, async (req, res) => {
+  try {
+    const pool = await dbPoolPromise;
+    const [rows] = await pool.query(
+      'SELECT ip, COUNT(*) AS cnt FROM request_logs WHERE created_at >= (NOW() - INTERVAL 1 DAY) GROUP BY ip ORDER BY cnt DESC'
+    );
+    const lines = Array.isArray(rows) ? rows.map(r => `${r.ip}\t${r.cnt}`).join('\n') : '';
+    const fname = `ip_report_${new Date().toISOString().slice(0,10)}.txt`;
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${fname}"`);
+    res.send(lines + (lines ? '\n' : ''));
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('report failed');
+  }
 });
 
 // Public announcement endpoint (no auth) – returns processed Markdown
