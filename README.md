@@ -26,6 +26,8 @@ DB_USER=<mysql-user>
 DB_PASSWORD=<mysql-password>
 DB_NAME=<mysql-database>
 
+PASSWORD_AUTH=true # Set to false if you want your app to be public
+
 
 
 ```
@@ -69,6 +71,7 @@ Note: /data requires the shared secret header: `x-app-token: change_me`.
 ```
 APP_BASE_URL=http://<server-host>:<port> #as in the other .env
 APP_TOKEN=<same-as-backend-APP_TOKEN> #same as the other .env
+PASSWORD_AUTH=true # Same as the other .env
 ```
 
 2) Install dependencies and run
