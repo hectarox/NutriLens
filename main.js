@@ -101,8 +101,13 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
         try { data = JSON.parse(text); } catch (_) { data = null; }
       }
       if ((text && text.trim()) || (data && Object.keys(data).length)) {
+        let finalPayload = data ?? text;
+        try {
+          const normalized = await englishNormalizeWithFlash(genAI, finalPayload);
+          if (normalized) finalPayload = normalized;
+        } catch (_) { /* fallback to original */ }
         await logRequestIp(req);
-        return res.json({ ok: true, data: data ?? text });
+        return res.json({ ok: true, data: finalPayload });
       }
     }
 
@@ -211,6 +216,45 @@ const generationConfig = {
     ]
   },
 };
+
+// Post-process: ensure JSON values are English using a single-pass flash call.
+// Returns a parsed object on success, or null to fallback to original.
+async function englishNormalizeWithFlash(genAI, originalJsonish) {
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: (
+        'You are a JSON post-processor. You will receive a nutrition JSON.\n' +
+        '- First, verify the language of all human-readable string values.\n' +
+        '- If any value is not English, translate ONLY the values into English.\n' +
+        '- Preserve the exact JSON structure and keys. Do not rename keys.\n' +
+        '- Keep all numbers and units as-is.\n' +
+        '- If everything is already English, return the JSON unchanged.\n' +
+        '- Respond with JSON only (no markdown, no code fences).'
+      ),
+      safetySettings,
+    });
+    const chat = model.startChat({ generationConfig });
+    const payload = (typeof originalJsonish === 'string') ? originalJsonish : JSON.stringify(originalJsonish);
+    const msg = 'Verify the following JSON is fully English. If not, translate values to English and return the JSON unchanged in structure and keys. Return JSON only.\n\nJSON:\n' + payload;
+    const result = await chat.sendMessage(msg);
+    const resp = result && result.response;
+    let text = '';
+    try { text = await resp.text(); } catch (_) { text = ''; }
+    if (text && text.trim().startsWith('```')) {
+      text = text.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '').trim();
+    }
+    if (!text || !text.trim()) return null;
+    try {
+      const data = JSON.parse(text);
+      if (data && typeof data === 'object' && Object.keys(data).length > 0) return data;
+    } catch (_) { /* parse failed */ }
+    return null;
+  } catch (e) {
+    try { console.warn('englishNormalizeWithFlash failed:', e && e.message ? e.message : e); } catch (_) {}
+    return null;
+  }
+}
 
 /**
  * Uploads the given file to Gemini.
