@@ -1,6 +1,18 @@
 # NutriLens app + backend
+An AI powered meal manager with insane accuracy. Supports English & French.
+    
+<img width="244" height="520" alt="image 1" src="https://github.com/user-attachments/assets/eeab6532-414d-4e97-be79-911abc05bb3a" /><img width="244" height="520" alt="image 2" src="https://github.com/user-attachments/assets/3474fabb-6964-4649-8f25-84b966dfcc7d" /><img width="244" height="520" alt="image 3" src="https://github.com/user-attachments/assets/d9456c38-0a1e-4f24-81ad-96f950a0f352" />
+
+
+  
+Free to use for everyone and diabetes-friendly! 
+
+Download here: https://github.com/hectarox/NutriLens/releases/latest
 
 You can join us here! [![Discord](https://img.shields.io/discord/1409336674370195538?logo=discord&label=NutriLens)](https://discord.gg/kpeGuSax9G)
+
+<details>
+<summary>Self-Hosting guide</summary>
 
 ## Backend setup
 
@@ -92,4 +104,5 @@ flutter build apk --release
 - Use the admin panel to invite a username; note the temporary password.
 - In the app, login with these credentials.
 - If prompted to set a new password, complete that step; the app will route to the main screen afterward.
+</details>
 
