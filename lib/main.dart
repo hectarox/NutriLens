@@ -1447,6 +1447,175 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return 'http://141.145.210.115:3007';
   }
 
+  // Check if camera is available on this platform
+  bool get canUseCamera => !kIsWeb && !(Platform.isLinux || Platform.isWindows || Platform.isMacOS);
+
+  // Build capture card widget
+  Widget _buildCaptureCard() {
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+        ),
+        boxShadow: [
+          // Black shadow behind
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.photo_camera,
+            size: 32,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Capture',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Column(
+            children: [
+              // Always show take photo button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canUseCamera ? _captureImage : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Camera not available in web mode')),
+                    );
+                  },
+                  icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                  label: Text(s.takePhoto),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: canUseCamera 
+                      ? null // Use default primary color
+                      : Theme.of(context).colorScheme.primary.withOpacity(0.6),
+                    foregroundColor: canUseCamera
+                      ? null // Use default onPrimary color
+                      : Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _pickImage,
+                  icon: const Icon(Icons.image_outlined, size: 18),
+                  label: Text(s.pickImage),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build other actions card widget with smaller font for long text
+  Widget _buildOtherCard() {
+    final s = S.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+        ),
+        boxShadow: [
+          // Black shadow behind
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.more_horiz,
+            size: 32,
+            color: Theme.of(context).colorScheme.secondary,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Other',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: Theme.of(context).colorScheme.secondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Column(
+            children: [
+              // Always show scan barcode button with smaller font
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canUseCamera ? _scanBarcode : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Barcode scanning not available in web mode')),
+                    );
+                  },
+                  icon: const Icon(Icons.qr_code_scanner, size: 16),
+                  label: Text(
+                    s.scanBarcode,
+                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: canUseCamera 
+                      ? Theme.of(context).colorScheme.secondary
+                      : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
+                    foregroundColor: canUseCamera
+                      ? Theme.of(context).colorScheme.onSecondary
+                      : Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _addManualFood,
+                  icon: const Icon(Icons.add, size: 16),
+                  label: Text(
+                    s.addManual,
+                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Theme.of(context).colorScheme.secondary),
+                    foregroundColor: Theme.of(context).colorScheme.secondary,
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1873,7 +2042,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Widget _buildMainTab() {
     final s = S.of(context);
-    final canUseCamera = !kIsWeb && !(Platform.isLinux || Platform.isWindows || Platform.isMacOS);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -1898,15 +2066,71 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextField(
-                  controller: _controller,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: s.describeMeal,
-                    hintText: s.describeMealHint,
-                  ),
+                // Enhanced input field with integrated Send button
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        maxLines: 2,
+                        decoration: InputDecoration(
+                          labelText: s.describeMeal,
+                          hintText: s.describeMealHint,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Circular Send to AI button - aligned with bottom of text field
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
+                            child: Center(
+                              child: _loading && !_queueMode
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.send_rounded,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 CheckboxListTile(
                   value: _queueMode,
                   onChanged: (v) async {
@@ -1920,39 +2144,35 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   subtitle: Text(S.of(context).queueInBackgroundHint),
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _addManualFood,
-                      icon: const Icon(Icons.add),
-                      label: Text(s.addManual),
-                    ),
-                    if (canUseCamera)
-                      FilledButton.icon(
-                        onPressed: _scanBarcode,
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: Text(s.scanBarcode),
-                      ),
-                    if (canUseCamera)
-                      FilledButton.icon(
-                        onPressed: _captureImage,
-                        icon: const Icon(Icons.photo_camera_outlined),
-                        label: Text(s.takePhoto),
-                      ),
-                    FilledButton.icon(
-                      onPressed: _pickImage,
-                      icon: const Icon(Icons.image_outlined),
-                      label: Text(s.pickImage),
-                    ),
-                    FilledButton.icon(
-                      onPressed: (_loading && !_queueMode) ? null : _sendOrQueue,
-                      icon: const Icon(Icons.send_rounded),
-                      label: Text((_loading && !_queueMode) ? s.sending : s.sendToAI),
-                    ),
-                  ],
+                const SizedBox(height: 16),
+                // Enhanced action buttons with responsive layout
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Check if we have enough width for side-by-side layout
+                    final isWideEnough = constraints.maxWidth > 400;
+                    
+                    if (isWideEnough) {
+                      // Side-by-side layout for wider screens
+                      return Row(
+                        children: [
+                          // Image capture section
+                          Expanded(child: _buildCaptureCard()),
+                          const SizedBox(width: 12),
+                          // Other actions section
+                          Expanded(child: _buildOtherCard()),
+                        ],
+                      );
+                    } else {
+                      // Vertical stack for narrow screens
+                      return Column(
+                        children: [
+                          _buildCaptureCard(),
+                          const SizedBox(height: 12),
+                          _buildOtherCard(),
+                        ],
+                      );
+                    }
+                  },
                 ),
                 if (_image != null) ...[
                   const SizedBox(height: 12),
