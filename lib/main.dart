@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -20,6 +21,10 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'services/background_uploader.dart' as bg;
 // permission_handler not required for nutrition; we rely on health plugin's auth flow
 
 // Split parts
@@ -30,6 +35,57 @@ part 'widgets/expandable_day_section.dart';
 part 'widgets/history_meal_card.dart';
 part 'widgets/common_widgets.dart';
 part 'l10n/translations.dart';
+
+// Notifications setup (Android): used to track background queue status
+final FlutterLocalNotificationsPlugin _notifs = FlutterLocalNotificationsPlugin();
+final StreamController<String?> notificationTapStream = StreamController<String?>.broadcast();
+String? _initialNotifPayload;
+
+Future<void> _initNotifications() async {
+  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final initSettings = InitializationSettings(android: android);
+  await _notifs.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (resp) {
+      notificationTapStream.add(resp.payload);
+    },
+    onDidReceiveBackgroundNotificationResponse: _onBgNotificationTap,
+  );
+  // Android 13+ runtime notifications permission
+  final androidPlugin = _notifs.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.requestNotificationsPermission();
+  // Ensure channel exists for our background queue
+  const channel = AndroidNotificationChannel(
+    'meal_queue',
+    'Meal Queue',
+    description: 'Background meal analysis status',
+    importance: Importance.defaultImportance,
+  );
+  await androidPlugin?.createNotificationChannel(channel);
+}
+
+// Preparing/queued notification disabled per request; function removed
+
+Future<void> _notifyDone({required String jobId, required String title, required String body, String? payload}) async {
+  await _notifs.cancel(jobId.hashCode);
+  final details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      'meal_queue', 'Meal Queue',
+      channelDescription: 'Background meal analysis status',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      ongoing: false,
+      visibility: NotificationVisibility.public,
+    ),
+  );
+  await _notifs.show(jobId.hashCode, title, body, details, payload: payload);
+}
+
+@pragma('vm:entry-point')
+void _onBgNotificationTap(NotificationResponse resp) {
+  // Forward background tap to foreground via stream when app resumes
+  notificationTapStream.add(resp.payload);
+}
 
 // Simple app settings with locale persistence
 class AppSettings extends ChangeNotifier {
@@ -113,9 +169,90 @@ void main() async {
   try {
     await dotenv.load(fileName: '.env.client');
   } catch (_) {}
+  await _initNotifications();
+  // Ensure no stale foreground service/notification from previous session
+  try {
+    final svc = FlutterBackgroundService();
+    // Ask any running service instance to stop
+    svc.invoke('stopService');
+    // Also clear stale notifications at boot
+    await _notifs.cancelAll();
+  } catch (_) {}
+  try {
+    final launch = await _notifs.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp == true) {
+      _initialNotifPayload = launch?.notificationResponse?.payload;
+    }
+  } catch (_) {}
+  // Configure background service once at startup
+  await bg.initializeBgService(_notifs);
   await appSettings.load();
   await authState.load();
   runApp(const RootApp());
+}
+
+// Hook into the first frame to handle notification that launched the app
+class _NotifTapHandler extends StatefulWidget {
+  final Widget child;
+  const _NotifTapHandler({required this.child});
+  @override
+  State<_NotifTapHandler> createState() => _NotifTapHandlerState();
+}
+
+class _NotifTapHandlerState extends State<_NotifTapHandler> {
+  StreamSubscription<String?>? _sub;
+  @override
+  void initState() {
+    super.initState();
+    // Listen runtime taps
+    _sub = notificationTapStream.stream.listen(_handlePayload);
+    // Handle initial payload if any
+    if (_initialNotifPayload != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _handlePayload(_initialNotifPayload));
+      _initialNotifPayload = null;
+    }
+  }
+
+  void _handlePayload(String? payload) async {
+    if (payload == null || payload.isEmpty) return;
+    // Expected payload: meal:<timestamp>
+    if (!mounted) return;
+    final state = context.findAncestorStateOfType<_MainScreenState>();
+    if (state == null) return;
+    await state._loadHistory();
+    final when = payload.startsWith('meal:') ? payload.substring(5) : '';
+    Map<String, dynamic>? found;
+    if (when.isNotEmpty) {
+      final dt = DateTime.tryParse(when);
+      if (dt != null) {
+        found = state._history.cast<Map<String, dynamic>?>().firstWhere(
+          (m) => m != null && state._asDateTime(m['time'])?.toIso8601String() == dt.toIso8601String(),
+          orElse: () => null,
+        );
+      }
+    }
+    if (found == null && state._history.isNotEmpty) {
+      found = state._history.last; // fallback to the latest
+    }
+    if (found != null) {
+      // open details
+      state._tabController.animateTo(0);
+      state._showMealDetails(found);
+    } else {
+      // still refresh UI
+      await state._loadQueue();
+      state.setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class RootApp extends StatelessWidget {
@@ -181,7 +318,7 @@ class RootApp extends StatelessWidget {
 
         return AnimatedBuilder(
           animation: appSettings,
-          builder: (context, _) => MaterialApp(
+          builder: (context, _) => _NotifTapHandler(child: MaterialApp(
             onGenerateTitle: (ctx) => S.of(ctx).appTitle,
             theme: lightTheme,
             darkTheme: darkTheme,
@@ -194,7 +331,7 @@ class RootApp extends StatelessWidget {
               GlobalCupertinoLocalizations.delegate,
             ],
             home: const AuthGate(),
-          ),
+          )),
         );
       },
     );
@@ -438,7 +575,7 @@ class MainScreen extends StatefulWidget {
 }
 
 // Moved _image and _controller to the class level to ensure state persistence
-class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
+class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final List<Map<String, dynamic>> _history = [];
   final TextEditingController _controller = TextEditingController();
@@ -465,14 +602,46 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   final List<Map<String, dynamic>> _queue = [];
   final List<Map<String, dynamic>> _notifications = [];
   bool _queueMode = false;
+  StreamSubscription<dynamic>? _bgDbSub;
+  Timer? _refreshTimer;
+  int? _lastHistMark;
+  int? _lastQueueMark;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
   _tabController = TabController(length: 3, vsync: this);
   _loadPrefs();
   _loadHistory();
+  _loadQueue();
   _pruneHistory();
+  // Live-refresh history/queue when background service writes results
+  if (!kIsWeb && Platform.isAndroid) {
+    _bgDbSub = FlutterBackgroundService().on('db_updated').listen((event) async {
+      await _reloadFromDisk();
+      if (!mounted) return;
+      _addNotification(S.of(context).resultSaved);
+    });
+    // Periodic fallback: watch SharedPreferences update markers to catch missed events
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        // Ensure we see updates written by the background service process
+        await prefs.reload();
+        final histMark = prefs.getInt('history_updated_at') ?? 0;
+        final queueMark = prefs.getInt('queue_updated_at') ?? 0;
+        // store last seen in State (local variables)
+        _lastHistMark ??= histMark;
+        _lastQueueMark ??= queueMark;
+        if (histMark != _lastHistMark || queueMark != _lastQueueMark) {
+          _lastHistMark = histMark;
+          _lastQueueMark = queueMark;
+          await _reloadFromDisk();
+        }
+      } catch (_) {}
+    });
+  }
   // Proactively check Health Connect status on supported platforms
   if (!kIsWeb && Platform.isAndroid) {
     // fire and forget; UI will update when done
@@ -491,8 +660,41 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
+  _bgDbSub?.cancel();
+  _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Retry pending/error jobs when app returns to foreground.
+    if (state == AppLifecycleState.resumed) {
+      // Reload to reflect any background service updates
+      // Do an immediate reload and a short delayed one to catch late writes
+      _reloadFromDisk();
+      Future.delayed(const Duration(milliseconds: 750), () {
+        if (mounted) _reloadFromDisk();
+      });
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _reloadFromDisk();
+      });
+      _autoRetryPending();
+    }
+  }
+
+  // Force-reload queue and history from SharedPreferences
+  Future<void> _reloadFromDisk() async {
+    try {
+  final prefs = await SharedPreferences.getInstance();
+  // Pull latest values written by other isolates/processes
+  await prefs.reload();
+  await _loadQueue();
+  await _loadHistory();
+    } catch (_) {
+      // ignore
+    }
   }
 
   Future<void> _checkAnnouncement() async {
@@ -602,7 +804,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
   _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
-  _queueMode = prefs.getBool('queue_mode_enabled') ?? true;
+  _queueMode = prefs.getBool('queue_mode_enabled') ?? false; // default: off
     });
   }
 
@@ -704,6 +906,81 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     });
   }
 
+  Future<void> _saveQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    final serializable = _queue.map((j) {
+      final m = Map<String, dynamic>.from(j);
+      final created = m['createdAt'];
+      if (created is DateTime) m['createdAt'] = created.toIso8601String();
+      return m;
+    }).toList();
+    await prefs.setString('queue_json', json.encode(serializable));
+  }
+
+  Future<void> _loadQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('queue_json');
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final list = json.decode(raw);
+      if (list is List) {
+        final restored = <Map<String, dynamic>>[];
+        for (final e in list) {
+          if (e is Map) {
+            final m = Map<String, dynamic>.from(e);
+            if (m['createdAt'] is String) {
+              final t = DateTime.tryParse(m['createdAt']);
+              if (t != null) m['createdAt'] = t;
+            }
+            restored.add(m);
+          }
+        }
+        if (mounted) setState(() { _queue..clear()..addAll(restored); });
+      }
+    } catch (_) {}
+  }
+
+  void _autoRetryPending() {
+    final pending = _queue.where((j) => (j['status'] != 'in_progress')).toList(growable: false);
+    for (final j in pending) {
+      // ignore: discarded_futures
+      _retryJob(j);
+    }
+  }
+
+  Future<void> _retryJob(Map<String, dynamic> j) async {
+    final imgPath = j['imagePath']?.toString();
+    final text = j['description']?.toString() ?? '';
+    final id = j['id']?.toString();
+    if (id == null) return;
+    setState(() {
+      j['status'] = 'in_progress';
+    });
+    await _saveQueue();
+  // Preparing upload notification disabled per request
+    try {
+      bg.startBackgroundUpload({
+        'id': id,
+        'imagePath': (imgPath ?? ''),
+        'description': text,
+        'baseUrl': _baseUrl(),
+        'lang': S.of(context).locale.languageCode,
+        'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+      });
+    } catch (_) {
+      // Fallback in case service cannot start
+      await _sendMessageCore(image: (imgPath != null && imgPath.isNotEmpty) ? XFile(imgPath) : null, text: text, useFlash: false, jobId: id);
+    }
+  }
+
+  Future<void> _retryAll() async {
+    final copy = _queue.toList();
+    for (final j in copy) {
+      // ignore: discarded_futures
+      _retryJob(j);
+    }
+  }
+
   void _openQueue() {
     showModalBottomSheet(
       context: context,
@@ -735,8 +1012,32 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           : const Icon(Icons.image_not_supported),
                               title: Text(desc?.isNotEmpty == true ? desc! : S.of(context).noDescription),
                               subtitle: Text('#${j['id']} • ${_formatTimeShort(created)} • $statusLabel'),
+                              trailing: Wrap(spacing: 0, children: [
+                                IconButton(
+                                  tooltip: 'Retry',
+                                  icon: const Icon(Icons.refresh),
+                                  onPressed: status == 'in_progress' ? null : () => _retryJob(j),
+                                ),
+                                IconButton(
+                                  tooltip: 'Remove',
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () async {
+                                    setState(() { _queue.remove(j); });
+                                    await _saveQueue();
+                                  },
+                                ),
+                              ]),
                     );
                   }),
+                if (_queue.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: OutlinedButton.icon(
+                      onPressed: _retryAll,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry all'),
+                    ),
+                  ),
                 const Divider(),
                 Text(S.of(context).notifications, style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
@@ -828,19 +1129,52 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
     if (_queueMode) {
       final jobId = _newJobId();
+      // Persist image to app documents so it survives background/kill
+      String? persistedPath;
+      if (capturedImage != null) {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final ext = _extensionSafe(capturedImage.path);
+          final dest = File('${dir.path}/meal_${DateTime.now().millisecondsSinceEpoch}$ext');
+          await dest.writeAsBytes(await capturedImage.readAsBytes());
+          persistedPath = dest.path;
+        } catch (_) {}
+      }
       setState(() {
         _queue.add({
           'id': jobId,
-          'imagePath': capturedImage?.path,
+          'imagePath': persistedPath ?? capturedImage?.path,
           'description': capturedText,
           'createdAt': DateTime.now(),
-          'status': 'pending',
+      'status': 'pending',
         });
         _image = null;
         _controller.clear();
       });
-      // ignore: discarded_futures
-      _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+    // Persist queue to survive app background/kill
+    await _saveQueue();
+  // Preparing upload notification disabled per request
+      // Start foreground service to process in background
+      try {
+        // Mark status in-progress
+        final idx = _queue.indexWhere((e) => e['id'] == jobId);
+        if (idx >= 0) {
+          setState(() { _queue[idx]['status'] = 'in_progress'; });
+          await _saveQueue();
+        }
+        bg.startBackgroundUpload({
+          'id': jobId,
+          'imagePath': (persistedPath ?? capturedImage?.path) ?? '',
+          'description': capturedText,
+          'baseUrl': _baseUrl(),
+          'lang': S.of(context).locale.languageCode,
+          'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+        });
+      } catch (_) {
+        // Fallback to in-app processing if service fails to start
+        // ignore: discarded_futures
+        _sendMessageCore(image: persistedPath != null ? XFile(persistedPath) : capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+      }
   _addNotification(S.of(context).queuedRequest(jobId));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
     } else {
@@ -1018,10 +1352,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _pruneHistory();
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
-            if (idx >= 0) _queue.removeAt(idx);
+      if (idx >= 0) _queue.removeAt(idx);
           }
         });
     await _saveHistory();
+    if (jobId != null) { await _saveQueue(); }
+        if (jobId != null) {
+          // ignore: discarded_futures
+          _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
+        }
 
         // If user is building a meal, append this item into the active group
         if (_pendingMealGroup != null) {
@@ -1133,6 +1472,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
             if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
             _addNotification('Request failed (#$jobId): $msg');
+            await _saveQueue();
+            // ignore: discarded_futures
+            _notifyDone(jobId: jobId, title: S.of(context).requestFailed, body: msg);
           }
           if (is50x) {
             // Show a popup dialog to switch to flash model
@@ -1176,8 +1518,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       );
       if (jobId != null) {
         final idx = _queue.indexWhere((j) => j['id'] == jobId);
-        if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
+  if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
         _addNotification('Request failed (#$jobId)');
+  await _saveQueue();
+  // ignore: discarded_futures
+  _notifyDone(jobId: jobId, title: S.of(context).requestFailed, body: S.of(context).serviceUnavailable);
       }
     } finally {
       // _loading handled by caller for non-queue mode
@@ -1238,6 +1583,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void _pruneHistory() {
     final cutoff = DateTime.now().subtract(const Duration(days: 30));
     _history.removeWhere((e) => (e['time'] as DateTime).isBefore(cutoff));
+  }
+
+  String _extensionSafe(String path) {
+    final i = path.lastIndexOf('.');
+    return i >= 0 ? path.substring(i) : '';
   }
 
   Future<void> _checkHealthStatus() async {

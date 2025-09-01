@@ -14,6 +14,8 @@ android {
     // AGP 8 requires JDK 17; use Java 17 compatibility
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+    // Required by flutter_local_notifications for newer java.time APIs
+    coreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -48,6 +50,7 @@ flutter {
 dependencies {
     // Match the version the 'health' plugin 13.1.1 was built against to avoid ABI issues
     implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
 }
 
 // Ensure all transitive usages also resolve to the same version to prevent ABI mismatches
