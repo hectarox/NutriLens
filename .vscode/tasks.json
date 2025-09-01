@@ -25,6 +25,31 @@
 				"$dart-json"
 			],
 			"group": "build"
+		},
+		{
+			"label": "flutter-run-once",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"run"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "flutter-run-once",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"run",
+				"--android-skip-build-dependency-validation"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
 		}
 	]
 }
