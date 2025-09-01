@@ -37,9 +37,12 @@ class AppSettings extends ChangeNotifier {
   Locale? get locale => _locale;
   bool _daltonian = false;
   bool get daltonian => _daltonian;
+  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode get themeMode => _themeMode;
 
   static const _prefsKey = 'app_locale'; // values: 'system', 'en', 'fr'
   static const _prefsDaltonian = 'daltonian_mode';
+  static const _prefsThemeMode = 'theme_mode'; // values: 'system', 'light', 'dark'
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,7 +53,21 @@ class AppSettings extends ChangeNotifier {
       _locale = Locale(code);
       Intl.defaultLocale = code;
     }
-  _daltonian = prefs.getBool(_prefsDaltonian) ?? false;
+    _daltonian = prefs.getBool(_prefsDaltonian) ?? false;
+    
+    // Load theme mode
+    final themeModeString = prefs.getString(_prefsThemeMode) ?? 'system';
+    switch (themeModeString) {
+      case 'light':
+        _themeMode = ThemeMode.light;
+        break;
+      case 'dark':
+        _themeMode = ThemeMode.dark;
+        break;
+      default:
+        _themeMode = ThemeMode.system;
+        break;
+    }
   }
 
   Future<void> setLocale(Locale? value) async {
@@ -70,6 +87,25 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsDaltonian, value);
+  }
+
+  Future<void> setThemeMode(ThemeMode value) async {
+    _themeMode = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    String themeModeString;
+    switch (value) {
+      case ThemeMode.light:
+        themeModeString = 'light';
+        break;
+      case ThemeMode.dark:
+        themeModeString = 'dark';
+        break;
+      default:
+        themeModeString = 'system';
+        break;
+    }
+    await prefs.setString(_prefsThemeMode, themeModeString);
   }
 }
 
@@ -181,19 +217,32 @@ class RootApp extends StatelessWidget {
 
         return AnimatedBuilder(
           animation: appSettings,
-          builder: (context, _) => MaterialApp(
-            onGenerateTitle: (ctx) => S.of(ctx).appTitle,
-            theme: lightTheme,
-            darkTheme: darkTheme,
-            themeMode: ThemeMode.system,
-            locale: appSettings.locale,
-            supportedLocales: const [Locale('en'), Locale('fr')],
-            localizationsDelegates: [
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-            home: const AuthGate(),
+          builder: (context, _) => AnimatedTheme(
+            duration: const Duration(milliseconds: 2000), // Much slower - 2 seconds
+            curve: Curves.easeInOutCubic, // Smooth, natural curve
+            data: appSettings.themeMode == ThemeMode.dark 
+                ? darkTheme 
+                : appSettings.themeMode == ThemeMode.light 
+                    ? lightTheme 
+                    : MediaQuery.of(context).platformBrightness == Brightness.dark 
+                        ? darkTheme 
+                        : lightTheme,
+            child: Builder(
+              builder: (context) => MaterialApp(
+                onGenerateTitle: (ctx) => S.of(ctx).appTitle,
+                theme: lightTheme,
+                darkTheme: darkTheme,
+                themeMode: appSettings.themeMode,
+                locale: appSettings.locale,
+                supportedLocales: const [Locale('en'), Locale('fr')],
+                localizationsDelegates: [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                home: const AuthGate(),
+              ),
+            ),
           ),
         );
       },
@@ -1734,6 +1783,38 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   onChanged: (_) {
                     appSettings.setLocale(const Locale('fr'));
                     Navigator.pop(ctx);
+                  },
+                ),
+                const Divider(),
+                ListTile(title: Text(s.theme, style: Theme.of(ctx).textTheme.titleMedium)),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.system,
+                  groupValue: appSettings.themeMode,
+                  title: Text(s.systemTheme),
+                  onChanged: (value) {
+                    if (value != null) {
+                      appSettings.setThemeMode(value);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.light,
+                  groupValue: appSettings.themeMode,
+                  title: Text(s.lightTheme),
+                  onChanged: (value) {
+                    if (value != null) {
+                      appSettings.setThemeMode(value);
+                    }
+                  },
+                ),
+                RadioListTile<ThemeMode>(
+                  value: ThemeMode.dark,
+                  groupValue: appSettings.themeMode,
+                  title: Text(s.darkTheme),
+                  onChanged: (value) {
+                    if (value != null) {
+                      appSettings.setThemeMode(value);
+                    }
                   },
                 ),
                 const Divider(),

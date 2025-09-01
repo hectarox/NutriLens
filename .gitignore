@@ -1,5 +1,9 @@
 # Miscellaneous
-*.class
+*..class
+# Serena configuration
+.serena/
+.agent.md
+CLAUDE.local.md
 *.log
 *.pyc
 *.swp

@@ -36,6 +36,10 @@ class S {
   String get updateHc => _code == 'fr' ? 'Mettre à jour Health Connect' : 'Update Health Connect';
   String get settings => _code == 'fr' ? 'Paramètres' : 'Settings';
   String get systemLanguage => _code == 'fr' ? 'Langue du système' : 'System language';
+  String get theme => _code == 'fr' ? 'Thème' : 'Theme';
+  String get systemTheme => _code == 'fr' ? 'Thème du système' : 'System theme';
+  String get lightTheme => _code == 'fr' ? 'Thème clair' : 'Light theme';
+  String get darkTheme => _code == 'fr' ? 'Thème sombre' : 'Dark theme';
   String get daltonianMode => _code == 'fr' ? 'Mode daltonien' : 'Colorblind-friendly mode';
   String get daltonianModeHint => _code == 'fr' ? 'Améliore les contrastes et couleurs pour les daltoniens' : 'Improves contrasts and colors for color vision deficiencies';
   String get tabHistory => _code == 'fr' ? 'Historique' : 'History';
