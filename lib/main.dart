@@ -208,9 +208,11 @@ void main() async {
   await _initNotifications();
   // Ensure no stale foreground service/notification from previous session
   try {
-    final svc = FlutterBackgroundService();
-    // Ask any running service instance to stop
-    svc.invoke('stopService');
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      final svc = FlutterBackgroundService();
+      // Ask any running service instance to stop
+      svc.invoke('stopService');
+    }
     // Also clear stale notifications at boot
     await _notifs.cancelAll();
   } catch (_) {}
@@ -220,8 +222,10 @@ void main() async {
       _initialNotifPayload = launch?.notificationResponse?.payload;
     }
   } catch (_) {}
-  // Configure background service once at startup
-  await bg.initializeBgService(_notifs);
+  // Configure background service once at startup (Android/iOS only)
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+    await bg.initializeBgService(_notifs);
+  }
   await appSettings.load();
   await authState.load();
   runApp(const RootApp());
@@ -666,7 +670,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   _loadQueue();
   _pruneHistory();
   // Live-refresh history/queue when background service writes results
-  if (!kIsWeb && Platform.isAndroid) {
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     _bgDbSub = FlutterBackgroundService().on('db_updated').listen((event) async {
       await _reloadFromDisk();
       if (!mounted) return;
