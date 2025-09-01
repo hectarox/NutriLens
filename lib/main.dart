@@ -355,7 +355,7 @@ class RootApp extends StatelessWidget {
         return AnimatedBuilder(
           animation: appSettings,
           builder: (context, _) => AnimatedTheme(
-            duration: const Duration(milliseconds: 250), // Fast, snappy transition
+            duration: const Duration(milliseconds: 2000), // Slow, comfortable transition
             curve: Curves.easeInOut, // Standard ease-in-out for smooth start/end
             data: appSettings.themeMode == ThemeMode.dark 
                 ? darkTheme 
