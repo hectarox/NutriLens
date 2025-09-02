@@ -2648,180 +2648,404 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     );
   }
 
+  // Compact action button for the new experimental UI
+  Widget _buildCompactActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    required Color color,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final isEnabled = onPressed != null;
+    
+    return Container(
+      height: 56,
+      decoration: BoxDecoration(
+        color: isEnabled ? color.withOpacity(0.1) : scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isEnabled ? color.withOpacity(0.3) : scheme.outline.withOpacity(0.2),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onPressed,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                size: 20,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Show manual add menu
+  void _showManualAddMenu() {
+    final s = S.of(context);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Add Manually',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+              title: const Text('Add meal manually'),
+              subtitle: const Text('Enter nutrition information manually'),
+              onTap: () {
+                Navigator.pop(context);
+                _addManualFood();
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMainTab() {
     final s = S.of(context);
-    return ListView(
+    final scheme = Theme.of(context).colorScheme;
+    
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      children: [
-        if (_pendingMealGroup != null)
-          Card(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
+      child: Column(
+        children: [
+          // Meal builder notification with modern styling
+          if (_pendingMealGroup != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [scheme.secondaryContainer, scheme.secondaryContainer.withOpacity(0.7)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: scheme.secondary.withOpacity(0.3)),
+              ),
               child: Row(
                 children: [
-                  const Icon(Icons.restaurant, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(s.mealBuilderActive)),
-                  TextButton.icon(onPressed: _finishPendingMeal, icon: const Icon(Icons.check), label: Text(s.finishMeal)),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: scheme.secondary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.restaurant, color: scheme.onSecondary, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(s.mealBuilderActive, style: TextStyle(fontWeight: FontWeight.w500))),
+                  FilledButton.icon(
+                    onPressed: _finishPendingMeal,
+                    icon: const Icon(Icons.check, size: 18),
+                    label: Text(s.finishMeal),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: scheme.secondary,
+                      foregroundColor: scheme.onSecondary,
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Enhanced input field with integrated Send button
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          labelText: s.describeMeal,
-                          hintText: s.describeMealHint,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+
+          // Main input card with modern chat-like design
+          Container(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+              border: Border.all(color: scheme.outline.withOpacity(0.1)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Modern input field with integrated send button
+                  Container(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: scheme.outline.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            maxLines: 1,
+                            decoration: InputDecoration(
+                              labelText: s.describeMeal,
+                              hintText: s.describeMealHint,
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              labelStyle: TextStyle(color: scheme.primary),
+                            ),
                           ),
-                          contentPadding: const EdgeInsets.all(16),
                         ),
+                        // Send button inside text field
+                        Container(
+                          margin: const EdgeInsets.all(4),
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [scheme.primary, scheme.primary.withOpacity(0.8)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: scheme.primary.withOpacity(0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
+                              child: Center(
+                                child: _loading && !_queueMode
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.send_rounded,
+                                        color: scheme.onPrimary,
+                                        size: 18,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Image preview with modern styling
+                  if (_image != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: _buildImageWidget(_image!, width: 50, height: 50, fit: BoxFit.cover),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Image attached',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                    color: scheme.onPrimaryContainer,
+                                  ),
+                                ),
+                                Text(
+                                  'Ready to analyze',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: scheme.onPrimaryContainer.withOpacity(0.7),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => setState(() => _image = null),
+                            icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
+                            style: IconButton.styleFrom(
+                              backgroundColor: scheme.surface.withOpacity(0.8),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // Circular Send to AI button - aligned with bottom of text field
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Container(
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // Compact action buttons row
+                  Row(
+                    children: [
+                      // Camera button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.photo_camera,
+                          label: 'Camera',
+                          onPressed: canUseCamera ? _captureImage : null,
+                          color: scheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Gallery button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.photo_library,
+                          label: 'Gallery',
+                          onPressed: _pickImage,
+                          color: scheme.secondary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Barcode button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.qr_code_scanner,
+                          label: 'Scan',
+                          onPressed: canUseCamera ? _scanBarcode : null,
+                          color: scheme.tertiary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Three-dot menu for manual adding
+                      Container(
                         width: 56,
                         height: 56,
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
+                          color: scheme.surfaceContainerHigh,
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                          border: Border.all(color: scheme.outline.withOpacity(0.2)),
                         ),
                         child: Material(
                           color: Colors.transparent,
                           shape: const CircleBorder(),
                           child: InkWell(
                             customBorder: const CircleBorder(),
-                            onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
-                            child: Center(
-                              child: _loading && !_queueMode
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.send_rounded,
-                                      color: Colors.white,
-                                      size: 24,
-                                    ),
+                            onTap: () => _showManualAddMenu(),
+                            child: Icon(
+                              Icons.more_vert,
+                              color: scheme.onSurfaceVariant,
+                              size: 24,
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                // Image thumbnail preview right under text input
-                if (_image != null) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: _buildImageWidget(_image!, width: 60, height: 60, fit: BoxFit.cover),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Image selected',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => setState(() => _image = null),
-                        icon: Icon(
-                          Icons.close,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        tooltip: 'Remove image',
-                      ),
                     ],
                   ),
-                ],
-                // Result card appears right after image thumbnail
-                if (_resultText.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  _FormattedResultCard(resultText: _resultText),
-                ],
-                const SizedBox(height: 16),
-                CheckboxListTile(
-                  value: _queueMode,
-                  onChanged: (v) async {
-                    final enabled = v ?? false;
-                    setState(() => _queueMode = enabled);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('queue_mode_enabled', enabled);
-                  },
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(S.of(context).queueInBackground),
-                  subtitle: Text(S.of(context).queueInBackgroundHint),
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
-                const SizedBox(height: 16),
-                // Enhanced action buttons with responsive layout
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Check if we have enough width for side-by-side layout
-                    final isWideEnough = constraints.maxWidth > 400;
-                    
-                    if (isWideEnough) {
-                      // Side-by-side layout for wider screens
-                      return Row(
-                        children: [
-                          // Image capture section
-                          Expanded(child: _buildCaptureCard()),
-                          const SizedBox(width: 12),
-                          // Other actions section
-                          Expanded(child: _buildOtherCard()),
-                        ],
-                      );
-                    } else {
-                      // Vertical stack for narrow screens
-                      return Column(
-                        children: [
-                          _buildCaptureCard(),
-                          const SizedBox(height: 12),
-                          _buildOtherCard(),
-                        ],
-                      );
-                    }
-                  },
-                ),
 
-              ],
+                  const SizedBox(height: 16),
+
+                  // Queue mode toggle with modern styling
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.queue,
+                          color: _queueMode ? scheme.primary : scheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                S.of(context).queueInBackground,
+                                style: TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              Text(
+                                S.of(context).queueInBackgroundHint,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _queueMode,
+                          onChanged: (v) async {
+                            final enabled = v;
+                            setState(() => _queueMode = enabled);
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setBool('queue_mode_enabled', enabled);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+
+          // Result card with enhanced styling
+          if (_resultText.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _FormattedResultCard(resultText: _resultText),
+          ],
+        ],
+      ),
     );
   }
 

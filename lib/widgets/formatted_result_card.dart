@@ -28,12 +28,23 @@ class _FormattedResultCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: scheme.secondaryContainer,
-                      borderRadius: BorderRadius.circular(8),
+                      gradient: LinearGradient(
+                        colors: [scheme.primary.withOpacity(0.1), scheme.primary.withOpacity(0.05)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: scheme.primary.withOpacity(0.2)),
                     ),
-                    child: Text(e.key, style: theme.textTheme.labelMedium?.copyWith(color: scheme.onSecondaryContainer)),
+                    child: Text(
+                      e.key, 
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -68,12 +79,23 @@ class _FormattedResultCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: scheme.tertiaryContainer,
-                        borderRadius: BorderRadius.circular(8),
+                        gradient: LinearGradient(
+                          colors: [scheme.secondary.withOpacity(0.1), scheme.secondary.withOpacity(0.05)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: scheme.secondary.withOpacity(0.2)),
                       ),
-                      child: Text(e.key, style: theme.textTheme.labelMedium?.copyWith(color: scheme.onTertiaryContainer)),
+                      child: Text(
+                        e.key, 
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: scheme.secondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(child: Text(e.value)),
@@ -144,7 +166,7 @@ class _FormattedResultCard extends StatelessWidget {
               ),
               Container(
                 decoration: BoxDecoration(
-                  color: scheme.surface,
+                  color: scheme.primaryContainer.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: IconButton(
@@ -157,7 +179,7 @@ class _FormattedResultCard extends StatelessWidget {
                   },
                   icon: Icon(
                     Icons.copy_all_outlined,
-                    color: scheme.onSurface,
+                    color: scheme.primary,
                     size: 20,
                   ),
                 ),
