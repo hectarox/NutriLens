@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -773,12 +774,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   });
   }
 
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
-  _bgDbSub?.cancel();
-  _refreshTimer?.cancel();
+    _bgDbSub?.cancel();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
@@ -2877,7 +2879,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     ),
                   ),
 
-                  // Image preview with modern styling
+                  // Image preview with clear guidance
                   if (_image != null) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -2887,40 +2889,71 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: scheme.primary.withOpacity(0.2)),
                       ),
-                      child: Row(
+                      child: Column(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: _buildImageWidget(_image!, width: 50, height: 50, fit: BoxFit.cover),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Image attached',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    color: scheme.onPrimaryContainer,
-                                  ),
+                          Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: _buildImageWidget(_image!, width: 50, height: 50, fit: BoxFit.cover),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Image attached',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: scheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Ready to upload. Please click on ',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: scheme.primary.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                          child: Icon(
+                                            Icons.send_rounded,
+                                            size: 12,
+                                            color: scheme.primary,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            ' or add more description',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                                Text(
-                                  'Ready to analyze',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: scheme.onPrimaryContainer.withOpacity(0.7),
-                                  ),
+                              ),
+                              IconButton(
+                                onPressed: () => setState(() => _image = null),
+                                icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: scheme.surface.withOpacity(0.8),
                                 ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => setState(() => _image = null),
-                            icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
-                            style: IconButton.styleFrom(
-                              backgroundColor: scheme.surface.withOpacity(0.8),
-                            ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
