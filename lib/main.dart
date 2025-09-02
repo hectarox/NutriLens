@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:async';
@@ -627,6 +629,66 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
+// Helper function to create web-compatible image widgets
+Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, BoxFit? fit}) {
+  if (kIsWeb) {
+    // On web, use Image.network for XFile or Image.memory for bytes
+    if (imageSource is XFile) {
+      return FutureBuilder<Uint8List>(
+        future: imageSource.readAsBytes(),
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return Image.memory(
+              snapshot.data!,
+              width: width,
+              height: height,
+              fit: fit ?? BoxFit.cover,
+            );
+          }
+          return Container(
+            width: width,
+            height: height,
+            color: Colors.grey[300],
+            child: const Icon(Icons.image),
+          );
+        },
+      );
+    } else if (imageSource is String) {
+      // For file paths on web, we can't access them directly
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.grey[300],
+        child: const Icon(Icons.image_not_supported),
+      );
+    }
+  } else {
+    // On mobile platforms, use Image.file as normal
+    String? path;
+    if (imageSource is XFile) {
+      path = imageSource.path;
+    } else if (imageSource is String) {
+      path = imageSource;
+    }
+    
+    if (path != null) {
+      return Image.file(
+        File(path),
+        width: width,
+        height: height,
+        fit: fit ?? BoxFit.cover,
+      );
+    }
+  }
+  
+  return Container(
+    width: width,
+    height: height,
+    color: Colors.grey[300],
+    child: const Icon(Icons.image),
+  );
+}
+
 // Moved _image and _controller to the class level to ensure state persistence
 class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
@@ -1060,7 +1122,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       leading: img != null && img.isNotEmpty
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(img), width: 40, height: 40, fit: BoxFit.cover),
+                              child: _buildImageWidget(img, width: 40, height: 40, fit: BoxFit.cover),
                             )
                           : const Icon(Icons.image_not_supported),
                               title: Text(desc?.isNotEmpty == true ? desc! : S.of(context).noDescription),
@@ -2676,6 +2738,35 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     ),
                   ],
                 ),
+                // Image thumbnail preview right under text input
+                if (_image != null) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: _buildImageWidget(_image!, width: 60, height: 60, fit: BoxFit.cover),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Image selected',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => setState(() => _image = null),
+                        icon: Icon(
+                          Icons.close,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        tooltip: 'Remove image',
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 CheckboxListTile(
                   value: _queueMode,
@@ -2720,17 +2811,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     }
                   },
                 ),
-                if (_image != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(_image!.path),
-                      height: 200,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
+
               ],
             ),
           ),
@@ -3134,7 +3215,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 if (meal['image'] != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(File(meal['image'].path), height: 220, fit: BoxFit.cover),
+                    child: _buildImageWidget(meal['image'], height: 220, fit: BoxFit.cover),
                   ),
                 const SizedBox(height: 8),
                 if (meal['description'] != null)
@@ -3177,8 +3258,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                 leading: imgPath != null && imgPath.isNotEmpty
                                     ? ClipRRect(
                                         borderRadius: BorderRadius.circular(8),
-                                        child: Image.file(
-                                          File(imgPath),
+                                        child: _buildImageWidget(
+                                          imgPath,
                                           width: 48,
                                           height: 48,
                                           fit: BoxFit.cover,

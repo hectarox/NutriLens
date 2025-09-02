@@ -27,8 +27,8 @@ class _HistoryMealCard extends StatelessWidget {
           if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty))
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.file(
-                File(meal['image'] != null ? meal['image'].path : (meal['imagePath'] as String)),
+              child: _buildImageWidget(
+                meal['image'] != null ? meal['image'] : (meal['imagePath'] as String),
                 width: 72,
                 height: 72,
                 fit: BoxFit.cover,
