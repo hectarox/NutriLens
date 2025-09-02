@@ -2410,7 +2410,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     await prefs.setBool('disable_announcements_globally', v);
                     if (!mounted) return;
                     setState(() => _announcementsDisabled = v);
-                    Navigator.pop(ctx);
+                    setDialogState(() => _announcementsDisabled = v);
                   },
                 ),
                 const Divider(),
@@ -2420,7 +2420,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   subtitle: Text(s.daltonianModeHint),
                   onChanged: (v) async {
                     await appSettings.setDaltonian(v);
-                    if (mounted) Navigator.pop(ctx);
                   },
                 ),
                 const Divider(),
