@@ -2286,7 +2286,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ListTile(
+                        title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Close settings',
+                    ),
+                  ],
+                ),
                 RadioListTile<String>(
                   value: 'system',
                   groupValue: current,
@@ -2344,6 +2357,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     if (value != null) {
                       appSettings.setThemeMode(value);
                     }
+                  },
+                ),
+                const Divider(),
+                SwitchListTile(
+                  value: _queueMode,
+                  title: Text(S.of(context).queueInBackground),
+                  subtitle: Text(S.of(context).queueInBackgroundHint),
+                  onChanged: (v) async {
+                    final enabled = v;
+                    setState(() => _queueMode = enabled);
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('queue_mode_enabled', enabled);
                   },
                 ),
                 const Divider(),
@@ -3021,52 +3046,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     ],
                   ),
 
-                  const SizedBox(height: 16),
 
-                  // Queue mode toggle with modern styling
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.queue,
-                          color: _queueMode ? scheme.primary : scheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                S.of(context).queueInBackground,
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              Text(
-                                S.of(context).queueInBackgroundHint,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: _queueMode,
-                          onChanged: (v) async {
-                            final enabled = v;
-                            setState(() => _queueMode = enabled);
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setBool('queue_mode_enabled', enabled);
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
