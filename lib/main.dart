@@ -1083,6 +1083,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         'baseUrl': _baseUrl(),
         'lang': S.of(context).locale.languageCode,
         'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+        'isMock': _isMockMode,
       });
     } catch (_) {
       // Fallback in case service cannot start
@@ -1286,6 +1287,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'baseUrl': _baseUrl(),
           'lang': S.of(context).locale.languageCode,
           'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+          'isMock': _isMockMode,
         });
       } catch (_) {
         // Fallback to in-app processing if service fails to start
