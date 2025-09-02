@@ -921,7 +921,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
   _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
-  _queueMode = prefs.getBool('queue_mode_enabled') ?? true; // default: on
+  _queueMode = prefs.getBool('queue_mode_enabled') ?? (!kIsWeb); // default: on for mobile, off for web
     });
   }
 
@@ -1245,7 +1245,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       );
       return;
     }
-    if (_queueMode) {
+    if (_queueMode && !kIsWeb) {
       final jobId = _newJobId();
       // Persist image to app documents so it survives background/kill
       String? persistedPath;
@@ -1296,6 +1296,29 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       }
   _addNotification(S.of(context).queuedRequest(jobId));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+    } else if (_queueMode && kIsWeb) {
+      // Special handling for web + queue mode: simulate the 5-second delay in foreground (no background service)
+      final jobId = _newJobId();
+      setState(() {
+        _queue.add({
+          'id': jobId,
+          'imagePath': capturedImage?.path,
+          'description': capturedText,
+          'createdAt': DateTime.now(),
+          'status': 'in_progress',
+        });
+        _image = null;
+        _controller.clear();
+      });
+      await _saveQueue();
+      _addNotification(S.of(context).queuedRequest(jobId));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+      
+      // Wait 5 seconds then process (with mock data if in mock mode)
+      Future.delayed(const Duration(seconds: 5), () async {
+        if (!mounted) return;
+        await _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+      });
     } else {
       setState(() => _loading = true);
       try {
@@ -1306,10 +1329,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  // Mock mode detection - checks if app is running in mock flavor
+  // Mock mode detection - checks if app is running in mock flavor or web build
   bool get _isMockMode {
     const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'production');
-    return flavor == 'mock';
+    return flavor == 'mock' || kIsWeb;
   }
 
   // Generate mock nutrition response for UI testing
@@ -2277,7 +2300,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) {
-        return SafeArea(
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => SafeArea(
           child: SingleChildScrollView(
             padding: EdgeInsets.only(
               left: 0,
@@ -2365,10 +2389,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 SwitchListTile(
                   value: _queueMode,
                   title: Text(S.of(context).queueInBackground),
-                  subtitle: Text(S.of(context).queueInBackgroundHint),
+                  subtitle: Text(kIsWeb 
+                    ? 'Web mode: 5-second delay simulation (no background service)'
+                    : S.of(context).queueInBackgroundHint),
                   onChanged: (v) async {
                     final enabled = v;
                     setState(() => _queueMode = enabled);
+                    setDialogState(() => _queueMode = enabled);
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.setBool('queue_mode_enabled', enabled);
                   },
@@ -2433,7 +2460,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }
