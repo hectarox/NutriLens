@@ -1240,7 +1240,118 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
+  // Mock mode detection - checks if app is running in mock flavor
+  bool get _isMockMode {
+    const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'production');
+    return flavor == 'mock';
+  }
+
+  // Generate mock nutrition response for UI testing
+  Map<String, dynamic> _generateMockResponse(String text, XFile? image) {
+    final random = DateTime.now().millisecondsSinceEpoch % 1000;
+    final foodName = text.isNotEmpty ? text : 'Sample Food';
+    
+    // Generate realistic but varied mock data
+    final baseCalories = 200 + (random % 400); // 200-600 calories
+    final carbs = 20 + (random % 60); // 20-80g carbs
+    final protein = 10 + (random % 30); // 10-40g protein
+    final fat = 5 + (random % 25); // 5-30g fat
+    final weight = 100 + (random % 300); // 100-400g weight
+    
+    final mockData = {
+      'Name': foodName,
+      'Calories': '$baseCalories kcal',
+      'Carbs': '${carbs}g',
+      'Proteins': '${protein}g', 
+      'Fats': '${fat}g',
+      'Weight (g)': '${weight}g',
+      'Mock': 'This is mock data for UI testing'
+    };
+    
+    return {
+      'ok': true,
+      'data': mockData
+    };
+  }
+
   Future<void> _sendMessageCore({required XFile? image, required String text, required bool useFlash, String? jobId}) async {
+    // Check if we're in mock mode and return fake data immediately
+    if (_isMockMode) {
+      await Future.delayed(const Duration(milliseconds: 200)); // Small delay to simulate network
+      final mockResponse = _generateMockResponse(text, image);
+      final responseBody = json.encode(mockResponse);
+      
+      // Process mock response using same logic as real API response
+      final decoded = json.decode(responseBody);
+      final structured = Map<String, dynamic>.from(decoded['data'] as Map);
+      final localizedStructured = _localizedStructured(structured);
+      
+      // Extract nutrition values from mock data
+      final kcal = int.tryParse(structured['Calories']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final carbs = int.tryParse(structured['Carbs']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final protein = int.tryParse(structured['Proteins']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final fat = int.tryParse(structured['Fats']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final grams = int.tryParse(structured['Weight (g)']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final mealName = structured['Name']?.toString();
+      
+      final newMeal = {
+        'image': image,
+        'imagePath': image?.path,
+        'description': text,
+        'name': mealName ?? (text.isNotEmpty ? text : null),
+        'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
+        'structured': localizedStructured,
+        'grams': grams,
+        'kcal': kcal,
+        'carbs': carbs,
+        'protein': protein,
+        'fat': fat,
+        'time': DateTime.now(),
+        'hcWritten': false,
+      };
+      
+      setState(() {
+        _resultText = const JsonEncoder.withIndent('  ').convert(localizedStructured);
+        _history.add(newMeal);
+        _pruneHistory();
+        if (jobId != null) {
+          final idx = _queue.indexWhere((j) => j['id'] == jobId);
+          if (idx >= 0) _queue.removeAt(idx);
+        }
+      });
+      
+      await _saveHistory();
+      if (jobId != null) { await _saveQueue(); }
+      
+      if (jobId != null) {
+        await _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
+      }
+      
+      if (_pendingMealGroup != null) {
+        _appendToGroup(_pendingMealGroup!, newMeal);
+        await _saveHistory();
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).resultSaved)),
+        );
+        if (jobId == null) {
+          setState(() {
+            _image = null;
+            _controller.clear();
+          });
+          _tabController.animateTo(0);
+        }
+        _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted) _showMealDetails(newMeal);
+        });
+      }
+      return;
+    }
+
+    // Original real API logic continues below
     final uri = Uri.parse('${_baseUrl()}/data${useFlash ? '?flash=1' : ''}');
     final request = http.MultipartRequest('POST', uri)
       ..fields['message'] = text;
