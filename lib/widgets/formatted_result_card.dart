@@ -95,32 +95,85 @@ class _FormattedResultCard extends StatelessWidget {
       }
     }
 
-    return Card(
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: scheme.primary.withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.primary.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
-          initiallyExpanded: false,
+          initiallyExpanded: true,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           title: Row(
             children: [
-              Expanded(child: Text(S.of(context).result, style: theme.textTheme.titleMedium, overflow: TextOverflow.ellipsis)),
-              IconButton(
-                tooltip: S.of(context).copy,
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: resultText));
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).copied)));
-                },
-                icon: const Icon(Icons.copy_all_outlined),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.restaurant_menu,
+                  color: scheme.onPrimary,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  S.of(context).result,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: scheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: IconButton(
+                  tooltip: S.of(context).copy,
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: resultText));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(S.of(context).copied)),
+                    );
+                  },
+                  icon: Icon(
+                    Icons.copy_all_outlined,
+                    color: scheme.onSurface,
+                    size: 20,
+                  ),
+                ),
               ),
             ],
           ),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           children: [
-            Align(
-              alignment: Alignment.center,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: content,
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: content,
             ),
           ],
         ),

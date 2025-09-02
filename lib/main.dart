@@ -2767,6 +2767,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     ],
                   ),
                 ],
+                // Result card appears right after image thumbnail
+                if (_resultText.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _FormattedResultCard(resultText: _resultText),
+                ],
                 const SizedBox(height: 16),
                 CheckboxListTile(
                   value: _queueMode,
@@ -2816,8 +2821,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        if (_resultText.isNotEmpty) _FormattedResultCard(resultText: _resultText),
       ],
     );
   }
