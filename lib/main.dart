@@ -727,7 +727,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-  _tabController = TabController(length: 3, vsync: this);
+  _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
   _loadPrefs();
   _loadHistory();
   _loadQueue();
