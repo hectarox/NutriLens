@@ -2182,7 +2182,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   icon: const Icon(Icons.qr_code_scanner, size: 16),
                   label: Text(
                     s.scanBarcode,
-                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
+                    style: TextStyle(
+                      fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: canUseCamera 
@@ -2191,7 +2196,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     foregroundColor: canUseCamera
                       ? Theme.of(context).colorScheme.onSecondary
                       : Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    padding: EdgeInsets.symmetric(
+                      vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                      horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                    ),
                   ),
                 ),
               ),
@@ -2203,12 +2211,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   icon: const Icon(Icons.add, size: 16),
                   label: Text(
                     s.addManual,
-                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
+                    style: TextStyle(
+                      fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Theme.of(context).colorScheme.secondary),
                     foregroundColor: Theme.of(context).colorScheme.secondary,
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    padding: EdgeInsets.symmetric(
+                      vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                      horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                    ),
                   ),
                 ),
               ),
@@ -2722,39 +2738,97 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final scheme = Theme.of(context).colorScheme;
     final isEnabled = onPressed != null;
     
+    // Responsive design based on screen width and text scale factor
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
+    final textScaleFactor = mediaQuery.textScaleFactor;
+    
+    // Calculate responsive dimensions
+    final double buttonHeight;
+    final double iconSize;
+    final double fontSize;
+    final EdgeInsets padding;
+    final double borderRadius;
+    
+    if (screenWidth < 320) {
+      // Very small screens (old phones) - increased height for text visibility
+      buttonHeight = 56.0;
+      iconSize = 16.0;
+      fontSize = 9.0;
+      padding = const EdgeInsets.symmetric(horizontal: 4, vertical: 4);
+      borderRadius = 12.0;
+    } else if (screenWidth < 360) {
+      // Small screens - increased height for text visibility
+      buttonHeight = 60.0;
+      iconSize = 18.0;
+      fontSize = 10.0;
+      padding = const EdgeInsets.symmetric(horizontal: 6, vertical: 4);
+      borderRadius = 14.0;
+    } else if (screenWidth < 420) {
+      // Medium screens - increased height for text visibility
+      buttonHeight = 64.0;
+      iconSize = 20.0;
+      fontSize = 11.0;
+      padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 6);
+      borderRadius = 16.0;
+    } else {
+      // Large screens - increased height for text visibility
+      buttonHeight = 68.0;
+      iconSize = 22.0;
+      fontSize = 12.0;
+      padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+      borderRadius = 18.0;
+    }
+    
+    // Adjust for accessibility text scaling but keep it reasonable
+    final adjustedFontSize = (fontSize * textScaleFactor.clamp(0.8, 1.3));
+    final adjustedIconSize = (iconSize * textScaleFactor.clamp(0.8, 1.2));
+    final adjustedHeight = buttonHeight * textScaleFactor.clamp(0.9, 1.2);
+    
     return Container(
-      height: 56,
+      height: adjustedHeight,
       decoration: BoxDecoration(
         color: isEnabled ? color.withOpacity(0.1) : scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
           color: isEnabled ? color.withOpacity(0.3) : scheme.outline.withOpacity(0.2),
         ),
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(borderRadius),
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(borderRadius),
           onTap: onPressed,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
-                size: 20,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
+          child: Padding(
+            padding: padding,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
                   color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                  size: adjustedIconSize,
                 ),
-              ),
-            ],
+                SizedBox(height: screenWidth < 360 ? 3 : 4),
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: adjustedFontSize,
+                        fontWeight: FontWeight.w500,
+                        color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3024,7 +3098,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
                   const SizedBox(height: 20),
 
-                  // Compact action buttons row
+                  // Compact action buttons row with responsive spacing
                   Row(
                     children: [
                       // Camera button
@@ -3036,7 +3110,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           color: scheme.primary,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
                       // Gallery button
                       Expanded(
                         child: _buildCompactActionButton(
@@ -3046,7 +3120,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           color: scheme.secondary,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
                       // Barcode button
                       Expanded(
                         child: _buildCompactActionButton(
@@ -3056,29 +3130,37 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           color: scheme.tertiary,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      // Three-dot menu for manual adding
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHigh,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: scheme.outline.withOpacity(0.2)),
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () => _showManualAddMenu(),
-                            child: Icon(
-                              Icons.more_vert,
-                              color: scheme.onSurfaceVariant,
-                              size: 24,
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      // Three-dot menu for manual adding with responsive sizing
+                      Builder(
+                        builder: (context) {
+                          final screenWidth = MediaQuery.of(context).size.width;
+                          final buttonSize = screenWidth < 360 ? 48.0 : 56.0;
+                          final iconSize = screenWidth < 360 ? 20.0 : 24.0;
+                          
+                          return Container(
+                            width: buttonSize,
+                            height: buttonSize,
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHigh,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: scheme.outline.withOpacity(0.2)),
                             ),
-                          ),
-                        ),
+                            child: Material(
+                              color: Colors.transparent,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () => _showManualAddMenu(),
+                                child: Icon(
+                                  Icons.more_vert,
+                                  color: scheme.onSurfaceVariant,
+                                  size: iconSize,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
