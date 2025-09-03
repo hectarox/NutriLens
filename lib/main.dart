@@ -2293,15 +2293,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   void _openSettings() {
-    final s = S.of(context);
-    final current = appSettings.locale?.languageCode ?? 'system';
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) {
         return StatefulBuilder(
-          builder: (ctx, setDialogState) => SafeArea(
+          builder: (ctx, setDialogState) {
+            final s = S.of(context);
+            final current = appSettings.locale?.languageCode ?? 'system';
+            return SafeArea(
           child: SingleChildScrollView(
             padding: EdgeInsets.only(
               left: 0,
@@ -2330,27 +2331,33 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   value: 'system',
                   groupValue: current,
                   title: Text(s.systemLanguage),
-                  onChanged: (_) {
-                    appSettings.setLocale(null);
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(null);
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 RadioListTile<String>(
                   value: 'en',
                   groupValue: current,
                   title: const Text('English'),
-                  onChanged: (_) {
-                    appSettings.setLocale(const Locale('en'));
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(const Locale('en'));
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 RadioListTile<String>(
                   value: 'fr',
                   groupValue: current,
                   title: const Text('Français'),
-                  onChanged: (_) {
-                    appSettings.setLocale(const Locale('fr'));
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(const Locale('fr'));
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 const Divider(),
@@ -2459,8 +2466,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
-        ),
-      );
+        );
+          },
+        );
       },
     );
   }
