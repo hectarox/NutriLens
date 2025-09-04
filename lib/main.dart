@@ -1701,11 +1701,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
         }
 
-        // If user is building a meal, append this item into the active group
-        if (_pendingMealGroup != null) {
-          _appendToGroup(_pendingMealGroup!, newMeal);
-          await _saveHistory();
-        }
+
 
         // Notify, reset composer, and show the result in History so users see success
         if (mounted) {
@@ -3083,43 +3079,40 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
     
     return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [scheme.primaryContainer, scheme.primaryContainer.withOpacity(0.7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.primary.withOpacity(0.3)),
+        color: scheme.primaryContainer.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.primary.withOpacity(0.2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(Icons.calculate, color: scheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                'Total Nutrition',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+          Icon(Icons.calculate, color: scheme.primary, size: 16),
+          const SizedBox(width: 8),
+          Text(
+            'Total:',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _Pill(icon: Icons.local_fire_department, label: "$totalKcal ${s.kcalSuffix}", color: Colors.redAccent),
-              _Pill(icon: Icons.grain, label: "$totalCarbs ${s.carbsSuffix}", color: _carbsColor(context)),
-              _Pill(icon: Icons.egg_alt, label: "$totalProtein ${s.proteinSuffix}", color: Colors.teal),
-              _Pill(icon: Icons.blur_on, label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _CompactPill(label: "$totalKcal ${s.kcalSuffix}", color: Colors.redAccent),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalCarbs ${s.carbsSuffix}", color: _carbsColor(context)),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalProtein ${s.proteinSuffix}", color: Colors.teal),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -3583,10 +3576,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (!_mealBuilderActive) {
       await _saveHistory();
     }
-    if (_pendingMealGroup != null) {
-      _appendToGroup(_pendingMealGroup!, newMeal);
-      await _saveHistory();
-    }
+
     if (mounted) {
       // Only switch to history tab and show popup in normal mode
       if (!_mealBuilderActive) {
