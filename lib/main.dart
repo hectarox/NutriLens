@@ -1461,7 +1461,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       };
       
       setState(() {
-        _resultText = const JsonEncoder.withIndent('  ').convert(localizedStructured);
         if (jobId != null) {
           final idx = _queue.indexWhere((j) => j['id'] == jobId);
           if (idx >= 0) _queue.removeAt(idx);
@@ -1476,6 +1475,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _history.add(newMeal);
           _pruneHistory();
         }
+        
+        // Clear result text since we don't show it on main page anymore
+        _resultText = '';
       });
       
       if (!_mealBuilderActive) {
@@ -1675,7 +1677,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'hcWritten': false,
         };
         setState(() {
-          _resultText = pretty;
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
             if (idx >= 0) _queue.removeAt(idx);
@@ -1690,6 +1691,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _history.add(newMeal);
             _pruneHistory();
           }
+          
+          // Clear result text since we don't show it on main page anymore
+          _resultText = '';
         });
         
         if (!_mealBuilderActive) {
@@ -3510,11 +3514,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           // Result cards (only in meal builder mode)
           _buildResultCards(),
 
-          // Result card with enhanced styling (only in normal mode)
-          if (_resultText.isNotEmpty && !_mealBuilderActive) ...[
-            const SizedBox(height: 20),
-            _FormattedResultCard(resultText: _resultText),
-          ],
+
         ],
       ),
     );
