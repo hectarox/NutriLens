@@ -26,15 +26,17 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'services/background_uploader.dart' as bg;
-// permission_handler not required for nutrition; we rely on health plugin's auth flow
 
-// Split parts
-part 'screens/barcode_scanner_screen.dart';
-part 'models/off_product.dart';
+// Include the widget files as parts
+part 'widgets/common_widgets.dart';
 part 'widgets/formatted_result_card.dart';
 part 'widgets/expandable_day_section.dart';
 part 'widgets/history_meal_card.dart';
-part 'widgets/common_widgets.dart';
+part 'screens/barcode_scanner_screen.dart';
+part 'models/off_product.dart';
+// permission_handler not required for nutrition; we rely on health plugin's auth flow
+
+// Split parts
 part 'l10n/translations.dart';
 
 // Notifications setup (Android): used to track background queue status
@@ -716,6 +718,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   final List<Map<String, dynamic>> _queue = [];
   final List<Map<String, dynamic>> _notifications = [];
   bool _queueMode = false;
+  // Meal builder mode
+  bool _mealBuilderActive = false;
+  final List<Map<String, dynamic>> _currentMealResults = [];
   StreamSubscription<dynamic>? _bgDbSub;
   Timer? _refreshTimer;
   int? _lastHistMark;
@@ -1458,15 +1463,25 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       
       setState(() {
         _resultText = const JsonEncoder.withIndent('  ').convert(localizedStructured);
-        _history.add(newMeal);
-        _pruneHistory();
         if (jobId != null) {
           final idx = _queue.indexWhere((j) => j['id'] == jobId);
           if (idx >= 0) _queue.removeAt(idx);
         }
+        
+        // Handle meal builder mode vs normal mode
+        if (_mealBuilderActive) {
+          // Add to current meal results instead of history
+          _currentMealResults.add(newMeal);
+        } else {
+          // Normal mode: add to history and show popup
+          _history.add(newMeal);
+          _pruneHistory();
+        }
       });
       
-      await _saveHistory();
+      if (!_mealBuilderActive) {
+        await _saveHistory();
+      }
       if (jobId != null) { await _saveQueue(); }
       
       if (jobId != null) {
@@ -1487,12 +1502,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _image = null;
             _controller.clear();
           });
-          _tabController.animateTo(0);
+          // Only switch to history tab in normal mode
+          if (!_mealBuilderActive) {
+            _tabController.animateTo(0);
+          }
         }
         _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
-        Future.delayed(const Duration(milliseconds: 200), () {
-          if (mounted) _showMealDetails(newMeal);
-        });
+        
+        // Only show meal details popup in normal mode
+        if (!_mealBuilderActive) {
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (mounted) _showMealDetails(newMeal);
+          });
+        }
       }
       return;
     }
@@ -1658,15 +1680,26 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         };
         setState(() {
           _resultText = pretty;
-          _history.add(newMeal);
-          _pruneHistory();
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
-      if (idx >= 0) _queue.removeAt(idx);
+            if (idx >= 0) _queue.removeAt(idx);
+          }
+          
+          // Handle meal builder mode vs normal mode
+          if (_mealBuilderActive) {
+            // Add to current meal results instead of history
+            _currentMealResults.add(newMeal);
+          } else {
+            // Normal mode: add to history and show popup
+            _history.add(newMeal);
+            _pruneHistory();
           }
         });
-    await _saveHistory();
-    if (jobId != null) { await _saveQueue(); }
+        
+        if (!_mealBuilderActive) {
+          await _saveHistory();
+        }
+        if (jobId != null) { await _saveQueue(); }
         if (jobId != null) {
           // ignore: discarded_futures
           _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
@@ -1679,7 +1712,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         }
 
         // Notify, reset composer, and show the result in History so users see success
-  if (mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(S.of(context).resultSaved)),
           );
@@ -1688,13 +1721,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               _image = null;
               _controller.clear();
             });
-            _tabController.animateTo(0);
+            // Only switch to history tab in normal mode
+            if (!_mealBuilderActive) {
+              _tabController.animateTo(0);
+            }
           }
           _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
-          // Open details after the tab switches
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) _showMealDetails(newMeal);
-          });
+          
+          // Only show meal details popup in normal mode
+          if (!_mealBuilderActive) {
+            Future.delayed(const Duration(milliseconds: 200), () {
+              if (mounted) _showMealDetails(newMeal);
+            });
+          }
         }
 
         // Try to sync to Health Connect (Android) when available
@@ -2345,22 +2384,50 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _buildDailyTab(),
         ],
       ),
-      bottomNavigationBar: Material(
-        color: scheme.surface,
-        child: SafeArea(
-          top: false,
-          child: TabBar(
-            controller: _tabController,
-            tabs: [
-              Tab(icon: const Icon(Icons.history), text: s.tabHistory),
-              Tab(icon: const Icon(Icons.camera_alt), text: s.tabMain),
-              Tab(icon: const Icon(Icons.local_fire_department), text: s.tabDaily),
-            ],
-            indicatorColor: scheme.primary,
-            labelColor: scheme.primary,
-            unselectedLabelColor: scheme.onSurfaceVariant,
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Meal builder toggle button above bottom navigation
+          Container(
+            width: double.infinity,
+            color: scheme.surface,
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: FilledButton.icon(
+                  onPressed: _toggleMealBuilder,
+                  icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
+                  label: Text(_mealBuilderActive ? 'Finish Meal' : 'Start Meal'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
+                    foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
+          // Bottom navigation bar
+          Material(
+            color: scheme.surface,
+            child: SafeArea(
+              top: false,
+              child: TabBar(
+                controller: _tabController,
+                tabs: [
+                  Tab(icon: const Icon(Icons.history), text: s.tabHistory),
+                  Tab(icon: const Icon(Icons.camera_alt), text: s.tabMain),
+                  Tab(icon: const Icon(Icons.local_fire_department), text: s.tabDaily),
+                ],
+                indicatorColor: scheme.primary,
+                labelColor: scheme.primary,
+                unselectedLabelColor: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2892,6 +2959,260 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     );
   }
 
+  // Build queue area widget
+  Widget _buildQueueArea() {
+    final scheme = Theme.of(context).colorScheme;
+    
+    if (_queue.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: scheme.outline.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.queue_outlined, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Text(
+              'Queue is empty',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.queue_outlined, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Processing Queue',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _queue.map((job) {
+              final status = job['status']?.toString() ?? 'pending';
+              final isProcessing = status == 'in_progress';
+              final hasError = status == 'error';
+              
+              return Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: hasError 
+                    ? scheme.errorContainer 
+                    : scheme.primaryContainer,
+                  border: Border.all(
+                    color: hasError 
+                      ? scheme.error 
+                      : (isProcessing ? scheme.primary : scheme.outline),
+                    width: isProcessing ? 2 : 1,
+                  ),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Background icon
+                    Icon(
+                      hasError ? Icons.error : Icons.fastfood,
+                      color: hasError 
+                        ? scheme.onErrorContainer 
+                        : scheme.onPrimaryContainer,
+                      size: 24,
+                    ),
+                    // Loading animation overlay
+                    if (isProcessing)
+                      SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build total nutrition bar for meal builder mode
+  Widget _buildTotalBar() {
+    if (!_mealBuilderActive || _currentMealResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    final scheme = Theme.of(context).colorScheme;
+    final s = S.of(context);
+    
+    // Calculate totals
+    int totalKcal = 0;
+    int totalCarbs = 0;
+    int totalProtein = 0;
+    int totalFat = 0;
+    
+    for (final result in _currentMealResults) {
+      totalKcal += (result['kcal'] as int?) ?? 0;
+      totalCarbs += (result['carbs'] as int?) ?? 0;
+      totalProtein += (result['protein'] as int?) ?? 0;
+      totalFat += (result['fat'] as int?) ?? 0;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [scheme.primaryContainer, scheme.primaryContainer.withOpacity(0.7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.calculate, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Total Nutrition',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _Pill(icon: Icons.local_fire_department, label: "$totalKcal ${s.kcalSuffix}", color: Colors.redAccent),
+              _Pill(icon: Icons.grain, label: "$totalCarbs ${s.carbsSuffix}", color: _carbsColor(context)),
+              _Pill(icon: Icons.egg_alt, label: "$totalProtein ${s.proteinSuffix}", color: Colors.teal),
+              _Pill(icon: Icons.blur_on, label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build result cards for meal builder mode
+  Widget _buildResultCards() {
+    if (!_mealBuilderActive || _currentMealResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    return Column(
+      children: _currentMealResults.map((result) {
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: _buildResultCard(result),
+        );
+      }).toList(),
+    );
+  }
+
+  // Build individual result card
+  Widget _buildResultCard(Map<String, dynamic> result) {
+    final scheme = Theme.of(context).colorScheme;
+    final name = result['name'] ?? result['description'] ?? 'Food Item';
+    final kcal = result['kcal'] as int?;
+    final grams = result['grams'] as int?;
+    
+    return Card(
+      elevation: 2,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: result['image'] != null
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _buildImageWidget(result['image'], width: 48, height: 48, fit: BoxFit.cover),
+              )
+            : Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.fastfood, color: scheme.onPrimaryContainer),
+              ),
+          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            '${kcal ?? 0} kcal${grams != null ? ' • ${grams}g' : ''}',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+          trailing: const Icon(Icons.expand_more),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (result['result'] != null)
+                    _FormattedResultCard(resultText: result['result']),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _currentMealResults.remove(result);
+                          });
+                        },
+                        icon: const Icon(Icons.remove_circle_outline, size: 16),
+                        label: const Text('Remove'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Show manual add menu
   void _showManualAddMenu() {
     final s = S.of(context);
@@ -3228,8 +3549,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             ),
           ),
 
-          // Result card with enhanced styling
-          if (_resultText.isNotEmpty) ...[
+          // Queue area (always visible)
+          _buildQueueArea(),
+
+          // Total nutrition bar (only in meal builder mode)
+          _buildTotalBar(),
+
+          // Result cards (only in meal builder mode)
+          _buildResultCards(),
+
+          // Result card with enhanced styling (only in normal mode)
+          if (_resultText.isNotEmpty && !_mealBuilderActive) ...[
             const SizedBox(height: 20),
             _FormattedResultCard(resultText: _resultText),
           ],
@@ -3280,20 +3610,33 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'hcWritten': false,
     };
     setState(() {
-      _history.add(newMeal);
-      _pruneHistory();
+      // Handle meal builder mode vs normal mode
+      if (_mealBuilderActive) {
+        // Add to current meal results instead of history
+        _currentMealResults.add(newMeal);
+      } else {
+        // Normal mode: add to history and show popup
+        _history.add(newMeal);
+        _pruneHistory();
+      }
     });
-    await _saveHistory();
+    
+    if (!_mealBuilderActive) {
+      await _saveHistory();
+    }
     if (_pendingMealGroup != null) {
       _appendToGroup(_pendingMealGroup!, newMeal);
       await _saveHistory();
     }
     if (mounted) {
-      _tabController.animateTo(0);
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted) _showMealDetails(newMeal);
-      });
-  _maybeOfferAddAnother(newMeal);
+      // Only switch to history tab and show popup in normal mode
+      if (!_mealBuilderActive) {
+        _tabController.animateTo(0);
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted) _showMealDetails(newMeal);
+        });
+      }
+
     }
     // Optionally, write to Health Connect if desired
     try {
@@ -4124,62 +4467,38 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'hcWritten': false,
     };
     setState(() {
-      _history.add(newMeal);
-      _pruneHistory();
+      // Handle meal builder mode vs normal mode
+      if (_mealBuilderActive) {
+        // Add to current meal results instead of history
+        _currentMealResults.add(newMeal);
+      } else {
+        // Normal mode: add to history and show popup
+        _history.add(newMeal);
+        _pruneHistory();
+      }
     });
-    await _saveHistory();
+    
+    if (!_mealBuilderActive) {
+      await _saveHistory();
+    }
     // If building a meal, append inside current group
     if (_pendingMealGroup != null) {
       _appendToGroup(_pendingMealGroup!, newMeal);
       await _saveHistory();
     }
     if (!mounted) return;
-    _tabController.animateTo(0);
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) _showMealDetails(newMeal);
-    });
-    _maybeOfferAddAnother(newMeal);
+    
+    // Only switch to history tab and show popup in normal mode
+    if (!_mealBuilderActive) {
+      _tabController.animateTo(0);
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) _showMealDetails(newMeal);
+      });
+    }
+  
   }
 
-  void _maybeOfferAddAnother(Map<String, dynamic> newMeal) {
-    final s = S.of(context);
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(s.addAnotherQ, style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  if (_pendingMealGroup == null) {
-                    _startMealGroupWith(newMeal);
-                  } else {
-                    _appendToGroup(_pendingMealGroup!, newMeal);
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(s.mealStarted),
-                      action: SnackBarAction(label: s.finishMeal, onPressed: _finishPendingMeal),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.add),
-                label: Text(s.addAnother),
-              ),
-              const SizedBox(height: 8),
-              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.notNow)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+
 
   void _startMealGroupWith(Map<String, dynamic> first) {
     final idx = _history.indexOf(first);
@@ -4236,6 +4555,53 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   void _finishPendingMeal() {
     setState(() => _pendingMealGroup = null);
+  }
+
+  void _toggleMealBuilder() {
+    setState(() {
+      if (_mealBuilderActive) {
+        // Finish meal - group all current results and add to history
+        if (_currentMealResults.isNotEmpty) {
+          _finishCurrentMeal();
+        }
+        _mealBuilderActive = false;
+      } else {
+        // Start meal
+        _mealBuilderActive = true;
+        _currentMealResults.clear();
+      }
+    });
+  }
+
+  void _finishCurrentMeal() {
+    if (_currentMealResults.isEmpty) return;
+    
+    // Create a grouped meal from current results
+    final group = <String, dynamic>{
+      'isGroup': true,
+      'name': S.of(context).meal,
+      'time': DateTime.now(),
+      'children': List.from(_currentMealResults),
+      'image': _currentMealResults.first['image'],
+      'imagePath': _currentMealResults.first['imagePath'],
+      'hcWritten': false,
+    };
+    
+    // Compute totals
+    _recomputeGroupSums(group);
+    
+    // Add to history
+    setState(() {
+      _history.add(group);
+      _currentMealResults.clear();
+      _pruneHistory();
+    });
+    
+    // Save and show feedback
+    _saveHistory();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Meal saved to history')),
+    );
   }
 
   // --- Formatting helpers ---
@@ -4362,11 +4728,3 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
 }
-
-// Moved Barcode scanner, OffProduct model, FormattedResultCard, and ExpandableDaySection to part files.
-
-// Moved remaining ExpandableDaySectionState and HistoryMealCard to part files.
-
-// Moved carbs color helper, ProgressBar, and Pill to part file.
-
-// Translations moved to l10n/translations.dart
