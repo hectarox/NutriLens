@@ -1,11 +1,9 @@
-import 'dart:io';
-import 'dart:typed_data';
-import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:async';
-import 'package:flutter/foundation.dart';
+ import 'dart:io';
+ import 'dart:typed_data';
+ import 'dart:async';
+ import 'dart:ui';
+ import 'package:flutter/foundation.dart';
+ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:intl/intl.dart';
@@ -1335,28 +1333,87 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return flavor == 'mock' || kIsWeb;
   }
 
+  // Mock barcode products for testing
+  final Map<String, Map<String, dynamic>> _mockBarcodeProducts = {
+    '3017620422003': {
+      'product_name': 'Mock Chocolate Bar',
+      'nutriments': {
+        'energy-kcal_100g': 250.0,
+        'carbohydrates_100g': 30.0,
+        'proteins_100g': 5.0,
+        'fat_100g': 12.0,
+      },
+      'serving_size': '50g',
+      'quantity': '100g',
+    },
+    '3274080005003': {
+      'product_name': 'Mock Apple',
+      'nutriments': {
+        'energy-kcal_100g': 52.0,
+        'carbohydrates_100g': 14.0,
+        'proteins_100g': 0.2,
+        'fat_100g': 0.2,
+      },
+      'serving_size': '150g',
+      'quantity': '150g',
+    },
+    '7613031234567': {
+      'product_name': 'Mock Bread Slice',
+      'nutriments': {
+        'energy-kcal_100g': 265.0,
+        'carbohydrates_100g': 49.0,
+        'proteins_100g': 9.0,
+        'fat_100g': 3.0,
+      },
+      'serving_size': '30g',
+      'quantity': '500g',
+    },
+    '8076809513192': {
+      'product_name': 'Mock Banana',
+      'nutriments': {
+        'energy-kcal_100g': 89.0,
+        'carbohydrates_100g': 23.0,
+        'proteins_100g': 1.1,
+        'fat_100g': 0.3,
+      },
+      'serving_size': '120g',
+      'quantity': '120g',
+    },
+    '7613287002434': {
+      'product_name': 'Mock Yogurt',
+      'nutriments': {
+        'energy-kcal_100g': 61.0,
+        'carbohydrates_100g': 4.0,
+        'proteins_100g': 3.5,
+        'fat_100g': 3.0,
+      },
+      'serving_size': '125g',
+      'quantity': '125g',
+    },
+  };
+
   // Generate mock nutrition response for UI testing
   Map<String, dynamic> _generateMockResponse(String text, XFile? image) {
     final random = DateTime.now().millisecondsSinceEpoch % 1000;
     final foodName = text.isNotEmpty ? text : 'Sample Food';
-    
+
     // Generate realistic but varied mock data
     final baseCalories = 200 + (random % 400); // 200-600 calories
     final carbs = 20 + (random % 60); // 20-80g carbs
     final protein = 10 + (random % 30); // 10-40g protein
     final fat = 5 + (random % 25); // 5-30g fat
     final weight = 100 + (random % 300); // 100-400g weight
-    
+
     final mockData = {
       'Name': foodName,
       'Calories': '$baseCalories kcal',
       'Carbs': '${carbs}g',
-      'Proteins': '${protein}g', 
+      'Proteins': '${protein}g',
       'Fats': '${fat}g',
       'Weight (g)': '${weight}g',
       'Mock': 'This is mock data for UI testing'
     };
-    
+
     return {
       'ok': true,
       'data': mockData
@@ -2170,39 +2227,39 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           const SizedBox(height: 12),
           Column(
             children: [
-              // Always show scan barcode button with smaller font
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: canUseCamera ? _scanBarcode : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Barcode scanning not available in web mode')),
-                    );
-                  },
-                  icon: const Icon(Icons.qr_code_scanner, size: 16),
-                  label: Text(
-                    s.scanBarcode,
-                    style: TextStyle(
-                      fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: canUseCamera 
-                      ? Theme.of(context).colorScheme.secondary
-                      : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
-                    foregroundColor: canUseCamera
-                      ? Theme.of(context).colorScheme.onSecondary
-                      : Colors.white,
-                    padding: EdgeInsets.symmetric(
-                      vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                      horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                    ),
-                  ),
-                ),
-              ),
+               // Always show scan barcode button with smaller font
+               SizedBox(
+                 width: double.infinity,
+                 child: FilledButton.icon(
+                   onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : () {
+                     ScaffoldMessenger.of(context).showSnackBar(
+                       SnackBar(content: Text('Barcode scanning not available in web mode')),
+                     );
+                   },
+                   icon: const Icon(Icons.qr_code_scanner, size: 16),
+                   label: Text(
+                     s.scanBarcode,
+                     style: TextStyle(
+                       fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
+                       fontWeight: FontWeight.w500,
+                     ),
+                     maxLines: 1,
+                     overflow: TextOverflow.ellipsis,
+                   ),
+                   style: FilledButton.styleFrom(
+                     backgroundColor: (canUseCamera || _isMockMode)
+                       ? Theme.of(context).colorScheme.secondary
+                       : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
+                     foregroundColor: (canUseCamera || _isMockMode)
+                       ? Theme.of(context).colorScheme.onSecondary
+                       : Colors.white,
+                     padding: EdgeInsets.symmetric(
+                       vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                       horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                     ),
+                   ),
+                 ),
+               ),
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
@@ -3121,15 +3178,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
-                      // Barcode button
-                      Expanded(
-                        child: _buildCompactActionButton(
-                          icon: Icons.qr_code_scanner,
-                          label: 'Scan',
-                          onPressed: canUseCamera ? _scanBarcode : null,
-                          color: scheme.tertiary,
-                        ),
-                      ),
+                       // Barcode button
+                       Expanded(
+                         child: _buildCompactActionButton(
+                           icon: Icons.qr_code_scanner,
+                           label: 'Scan',
+                           onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : null,
+                           color: scheme.tertiary,
+                         ),
+                       ),
                       SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
                       // Three-dot menu for manual adding with responsive sizing
                       Builder(
@@ -3305,6 +3362,28 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   Future<_OffProduct?> _fetchOffProduct(String barcode) async {
+    // Check if we're in mock mode
+    if (_isMockMode) {
+      // Return mock product data
+      final mockProduct = _mockBarcodeProducts[barcode];
+      if (mockProduct != null) {
+        return _OffProduct.fromJson(mockProduct);
+      }
+      // If barcode not found in mock data, return a generic mock product
+      final genericMockProduct = {
+        'product_name': 'Mock Product',
+        'nutriments': {
+          'energy-kcal_100g': 200.0,
+          'carbohydrates_100g': 25.0,
+          'proteins_100g': 8.0,
+          'fat_100g': 7.0,
+        },
+        'serving_size': '100g',
+        'quantity': '100g',
+      };
+      return _OffProduct.fromJson(genericMockProduct);
+    }
+
     try {
       // Open Food Facts public API (no key required); "run the api on the device" interpreted as direct device-side HTTP call
       final uri = Uri.parse('https://world.openfoodfacts.org/api/v2/product/$barcode.json');
