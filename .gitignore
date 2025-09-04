@@ -3,7 +3,10 @@
 # Serena configuration
 .serena/
 .agent.md
+llm/
+docs/
 CLAUDE.local.md
+prd/
 *.log
 *.pyc
 *.swp

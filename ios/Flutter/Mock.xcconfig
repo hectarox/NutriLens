@@ -1,0 +1,4 @@
+#include "Generated.xcconfig"
+
+FLUTTER_BUILD_MODE=debug
+FLUTTER_BUILD_NAME=2.0.0-mock

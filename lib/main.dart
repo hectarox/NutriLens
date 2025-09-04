@@ -1,8 +1,9 @@
-import 'dart:io';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:async';
-import 'package:flutter/foundation.dart';
+ import 'dart:io';
+ import 'dart:typed_data';
+ import 'dart:async';
+ import 'dart:ui';
+ import 'package:flutter/foundation.dart';
+ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:intl/intl.dart';
@@ -25,15 +26,17 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'services/background_uploader.dart' as bg;
-// permission_handler not required for nutrition; we rely on health plugin's auth flow
 
-// Split parts
-part 'screens/barcode_scanner_screen.dart';
-part 'models/off_product.dart';
+// Include the widget files as parts
+part 'widgets/common_widgets.dart';
 part 'widgets/formatted_result_card.dart';
 part 'widgets/expandable_day_section.dart';
 part 'widgets/history_meal_card.dart';
-part 'widgets/common_widgets.dart';
+part 'screens/barcode_scanner_screen.dart';
+part 'models/off_product.dart';
+// permission_handler not required for nutrition; we rely on health plugin's auth flow
+
+// Split parts
 part 'l10n/translations.dart';
 
 // Notifications setup (Android): used to track background queue status
@@ -627,6 +630,66 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
+// Helper function to create web-compatible image widgets
+Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, BoxFit? fit}) {
+  if (kIsWeb) {
+    // On web, use Image.network for XFile or Image.memory for bytes
+    if (imageSource is XFile) {
+      return FutureBuilder<Uint8List>(
+        future: imageSource.readAsBytes(),
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return Image.memory(
+              snapshot.data!,
+              width: width,
+              height: height,
+              fit: fit ?? BoxFit.cover,
+            );
+          }
+          return Container(
+            width: width,
+            height: height,
+            color: Colors.grey[300],
+            child: const Icon(Icons.image),
+          );
+        },
+      );
+    } else if (imageSource is String) {
+      // For file paths on web, we can't access them directly
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.grey[300],
+        child: const Icon(Icons.image_not_supported),
+      );
+    }
+  } else {
+    // On mobile platforms, use Image.file as normal
+    String? path;
+    if (imageSource is XFile) {
+      path = imageSource.path;
+    } else if (imageSource is String) {
+      path = imageSource;
+    }
+    
+    if (path != null) {
+      return Image.file(
+        File(path),
+        width: width,
+        height: height,
+        fit: fit ?? BoxFit.cover,
+      );
+    }
+  }
+  
+  return Container(
+    width: width,
+    height: height,
+    color: Colors.grey[300],
+    child: const Icon(Icons.image),
+  );
+}
+
 // Moved _image and _controller to the class level to ensure state persistence
 class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
@@ -646,8 +709,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   double? _todayTotalBurnedKcal;
   double? _todayActiveBurnedKcal;
   bool _loadingBurned = false;
-  // When set, newly added foods can be appended to this grouped meal until finished
-  Map<String, dynamic>? _pendingMealGroup;
+
   // Announcement
   bool _announcementChecked = false;
   bool _announcementsDisabled = false;
@@ -655,6 +717,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   final List<Map<String, dynamic>> _queue = [];
   final List<Map<String, dynamic>> _notifications = [];
   bool _queueMode = false;
+  // Meal builder mode
+  bool _mealBuilderActive = false;
+  final List<Map<String, dynamic>> _currentMealResults = [];
   StreamSubscription<dynamic>? _bgDbSub;
   Timer? _refreshTimer;
   int? _lastHistMark;
@@ -664,7 +729,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-  _tabController = TabController(length: 3, vsync: this);
+  _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
   _loadPrefs();
   _loadHistory();
   _loadQueue();
@@ -711,12 +776,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   });
   }
 
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
-  _bgDbSub?.cancel();
-  _refreshTimer?.cancel();
+    _bgDbSub?.cancel();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
@@ -857,7 +923,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
   _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
-  _queueMode = prefs.getBool('queue_mode_enabled') ?? false; // default: off
+  _queueMode = prefs.getBool('queue_mode_enabled') ?? (!kIsWeb); // default: on for mobile, off for web
     });
   }
 
@@ -1019,6 +1085,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         'baseUrl': _baseUrl(),
         'lang': S.of(context).locale.languageCode,
         'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+        'isMock': _isMockMode,
       });
     } catch (_) {
       // Fallback in case service cannot start
@@ -1060,7 +1127,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       leading: img != null && img.isNotEmpty
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.file(File(img), width: 40, height: 40, fit: BoxFit.cover),
+                              child: _buildImageWidget(img, width: 40, height: 40, fit: BoxFit.cover),
                             )
                           : const Icon(Icons.image_not_supported),
                               title: Text(desc?.isNotEmpty == true ? desc! : S.of(context).noDescription),
@@ -1180,7 +1247,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       );
       return;
     }
-    if (_queueMode) {
+    if (_queueMode && !kIsWeb) {
       final jobId = _newJobId();
       // Persist image to app documents so it survives background/kill
       String? persistedPath;
@@ -1222,6 +1289,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'baseUrl': _baseUrl(),
           'lang': S.of(context).locale.languageCode,
           'auth': kPasswordAuthEnabled ? (authState.token ?? '') : '',
+          'isMock': _isMockMode,
         });
       } catch (_) {
         // Fallback to in-app processing if service fails to start
@@ -1230,6 +1298,29 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       }
   _addNotification(S.of(context).queuedRequest(jobId));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+    } else if (_queueMode && kIsWeb) {
+      // Special handling for web + queue mode: simulate the 5-second delay in foreground (no background service)
+      final jobId = _newJobId();
+      setState(() {
+        _queue.add({
+          'id': jobId,
+          'imagePath': capturedImage?.path,
+          'description': capturedText,
+          'createdAt': DateTime.now(),
+          'status': 'in_progress',
+        });
+        _image = null;
+        _controller.clear();
+      });
+      await _saveQueue();
+      _addNotification(S.of(context).queuedRequest(jobId));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+      
+      // Wait 5 seconds then process (with mock data if in mock mode)
+      Future.delayed(const Duration(seconds: 5), () async {
+        if (!mounted) return;
+        await _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+      });
     } else {
       setState(() => _loading = true);
       try {
@@ -1240,7 +1331,193 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
+  // Mock mode detection - checks if app is running in mock flavor or web build
+  bool get _isMockMode {
+    const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'production');
+    return flavor == 'mock' || kIsWeb;
+  }
+
+  // Mock barcode products for testing
+  final Map<String, Map<String, dynamic>> _mockBarcodeProducts = {
+    '3017620422003': {
+      'product_name': 'Mock Chocolate Bar',
+      'nutriments': {
+        'energy-kcal_100g': 250.0,
+        'carbohydrates_100g': 30.0,
+        'proteins_100g': 5.0,
+        'fat_100g': 12.0,
+      },
+      'serving_size': '50g',
+      'quantity': '100g',
+    },
+    '3274080005003': {
+      'product_name': 'Mock Apple',
+      'nutriments': {
+        'energy-kcal_100g': 52.0,
+        'carbohydrates_100g': 14.0,
+        'proteins_100g': 0.2,
+        'fat_100g': 0.2,
+      },
+      'serving_size': '150g',
+      'quantity': '150g',
+    },
+    '7613031234567': {
+      'product_name': 'Mock Bread Slice',
+      'nutriments': {
+        'energy-kcal_100g': 265.0,
+        'carbohydrates_100g': 49.0,
+        'proteins_100g': 9.0,
+        'fat_100g': 3.0,
+      },
+      'serving_size': '30g',
+      'quantity': '500g',
+    },
+    '8076809513192': {
+      'product_name': 'Mock Banana',
+      'nutriments': {
+        'energy-kcal_100g': 89.0,
+        'carbohydrates_100g': 23.0,
+        'proteins_100g': 1.1,
+        'fat_100g': 0.3,
+      },
+      'serving_size': '120g',
+      'quantity': '120g',
+    },
+    '7613287002434': {
+      'product_name': 'Mock Yogurt',
+      'nutriments': {
+        'energy-kcal_100g': 61.0,
+        'carbohydrates_100g': 4.0,
+        'proteins_100g': 3.5,
+        'fat_100g': 3.0,
+      },
+      'serving_size': '125g',
+      'quantity': '125g',
+    },
+  };
+
+  // Generate mock nutrition response for UI testing
+  Map<String, dynamic> _generateMockResponse(String text, XFile? image) {
+    final random = DateTime.now().millisecondsSinceEpoch % 1000;
+    final foodName = text.isNotEmpty ? text : 'Sample Food';
+
+    // Generate realistic but varied mock data
+    final baseCalories = 200 + (random % 400); // 200-600 calories
+    final carbs = 20 + (random % 60); // 20-80g carbs
+    final protein = 10 + (random % 30); // 10-40g protein
+    final fat = 5 + (random % 25); // 5-30g fat
+    final weight = 100 + (random % 300); // 100-400g weight
+
+    final mockData = {
+      'Name': foodName,
+      'Calories': '$baseCalories kcal',
+      'Carbs': '${carbs}g',
+      'Proteins': '${protein}g',
+      'Fats': '${fat}g',
+      'Weight (g)': '${weight}g',
+      'Mock': 'This is mock data for UI testing'
+    };
+
+    return {
+      'ok': true,
+      'data': mockData
+    };
+  }
+
   Future<void> _sendMessageCore({required XFile? image, required String text, required bool useFlash, String? jobId}) async {
+    // Check if we're in mock mode and return fake data immediately
+    if (_isMockMode) {
+      await Future.delayed(const Duration(milliseconds: 200)); // Small delay to simulate network
+      final mockResponse = _generateMockResponse(text, image);
+      final responseBody = json.encode(mockResponse);
+      
+      // Process mock response using same logic as real API response
+      final decoded = json.decode(responseBody);
+      final structured = Map<String, dynamic>.from(decoded['data'] as Map);
+      final localizedStructured = _localizedStructured(structured);
+      
+      // Extract nutrition values from mock data
+      final kcal = int.tryParse(structured['Calories']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final carbs = int.tryParse(structured['Carbs']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final protein = int.tryParse(structured['Proteins']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final fat = int.tryParse(structured['Fats']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final grams = int.tryParse(structured['Weight (g)']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final mealName = structured['Name']?.toString();
+      
+      final newMeal = {
+        'image': image,
+        'imagePath': image?.path,
+        'description': text,
+        'name': mealName ?? (text.isNotEmpty ? text : null),
+        'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
+        'structured': localizedStructured,
+        'grams': grams,
+        'kcal': kcal,
+        'carbs': carbs,
+        'protein': protein,
+        'fat': fat,
+        'time': DateTime.now(),
+        'hcWritten': false,
+      };
+      
+      setState(() {
+        if (jobId != null) {
+          final idx = _queue.indexWhere((j) => j['id'] == jobId);
+          if (idx >= 0) _queue.removeAt(idx);
+        }
+        
+        // Handle meal builder mode vs normal mode
+        if (_mealBuilderActive) {
+          // Add to current meal results instead of history
+          _currentMealResults.add(newMeal);
+        } else {
+          // Normal mode: add to history and show popup
+          _history.add(newMeal);
+          _pruneHistory();
+        }
+        
+        // Clear result text since we don't show it on main page anymore
+        _resultText = '';
+      });
+      
+      if (!_mealBuilderActive) {
+        await _saveHistory();
+      }
+      if (jobId != null) { await _saveQueue(); }
+      
+      if (jobId != null) {
+        await _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
+      }
+      
+
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.of(context).resultSaved)),
+        );
+        if (jobId == null) {
+          setState(() {
+            _image = null;
+            _controller.clear();
+          });
+          // Only switch to history tab in normal mode
+          if (!_mealBuilderActive) {
+            _tabController.animateTo(0);
+          }
+        }
+        _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
+        
+        // Only show meal details popup in normal mode
+        if (!_mealBuilderActive) {
+          Future.delayed(const Duration(milliseconds: 200), () {
+            if (mounted) _showMealDetails(newMeal);
+          });
+        }
+      }
+      return;
+    }
+
+    // Original real API logic continues below
     final uri = Uri.parse('${_baseUrl()}/data${useFlash ? '?flash=1' : ''}');
     final request = http.MultipartRequest('POST', uri)
       ..fields['message'] = text;
@@ -1400,29 +1677,38 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'hcWritten': false,
         };
         setState(() {
-          _resultText = pretty;
-          _history.add(newMeal);
-          _pruneHistory();
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
-      if (idx >= 0) _queue.removeAt(idx);
+            if (idx >= 0) _queue.removeAt(idx);
           }
+          
+          // Handle meal builder mode vs normal mode
+          if (_mealBuilderActive) {
+            // Add to current meal results instead of history
+            _currentMealResults.add(newMeal);
+          } else {
+            // Normal mode: add to history and show popup
+            _history.add(newMeal);
+            _pruneHistory();
+          }
+          
+          // Clear result text since we don't show it on main page anymore
+          _resultText = '';
         });
-    await _saveHistory();
-    if (jobId != null) { await _saveQueue(); }
+        
+        if (!_mealBuilderActive) {
+          await _saveHistory();
+        }
+        if (jobId != null) { await _saveQueue(); }
         if (jobId != null) {
           // ignore: discarded_futures
           _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
         }
 
-        // If user is building a meal, append this item into the active group
-        if (_pendingMealGroup != null) {
-          _appendToGroup(_pendingMealGroup!, newMeal);
-          await _saveHistory();
-        }
+
 
         // Notify, reset composer, and show the result in History so users see success
-  if (mounted) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(S.of(context).resultSaved)),
           );
@@ -1431,13 +1717,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               _image = null;
               _controller.clear();
             });
-            _tabController.animateTo(0);
+            // Only switch to history tab in normal mode
+            if (!_mealBuilderActive) {
+              _tabController.animateTo(0);
+            }
           }
           _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
-          // Open details after the tab switches
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) _showMealDetails(newMeal);
-          });
+          
+          // Only show meal details popup in normal mode
+          if (!_mealBuilderActive) {
+            Future.delayed(const Duration(milliseconds: 200), () {
+              if (mounted) _showMealDetails(newMeal);
+            });
+          }
         }
 
         // Try to sync to Health Connect (Android) when available
@@ -1970,31 +2262,39 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           const SizedBox(height: 12),
           Column(
             children: [
-              // Always show scan barcode button with smaller font
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: canUseCamera ? _scanBarcode : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Barcode scanning not available in web mode')),
-                    );
-                  },
-                  icon: const Icon(Icons.qr_code_scanner, size: 16),
-                  label: Text(
-                    s.scanBarcode,
-                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: canUseCamera 
-                      ? Theme.of(context).colorScheme.secondary
-                      : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
-                    foregroundColor: canUseCamera
-                      ? Theme.of(context).colorScheme.onSecondary
-                      : Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  ),
-                ),
-              ),
+               // Always show scan barcode button with smaller font
+               SizedBox(
+                 width: double.infinity,
+                 child: FilledButton.icon(
+                   onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : () {
+                     ScaffoldMessenger.of(context).showSnackBar(
+                       SnackBar(content: Text('Barcode scanning not available in web mode')),
+                     );
+                   },
+                   icon: const Icon(Icons.qr_code_scanner, size: 16),
+                   label: Text(
+                     s.scanBarcode,
+                     style: TextStyle(
+                       fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
+                       fontWeight: FontWeight.w500,
+                     ),
+                     maxLines: 1,
+                     overflow: TextOverflow.ellipsis,
+                   ),
+                   style: FilledButton.styleFrom(
+                     backgroundColor: (canUseCamera || _isMockMode)
+                       ? Theme.of(context).colorScheme.secondary
+                       : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
+                     foregroundColor: (canUseCamera || _isMockMode)
+                       ? Theme.of(context).colorScheme.onSecondary
+                       : Colors.white,
+                     padding: EdgeInsets.symmetric(
+                       vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                       horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                     ),
+                   ),
+                 ),
+               ),
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
@@ -2003,12 +2303,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   icon: const Icon(Icons.add, size: 16),
                   label: Text(
                     s.addManual,
-                    style: const TextStyle(fontSize: 12), // Smaller font to prevent wrapping
+                    style: TextStyle(
+                      fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Theme.of(context).colorScheme.secondary),
                     foregroundColor: Theme.of(context).colorScheme.secondary,
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    padding: EdgeInsets.symmetric(
+                      vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                      horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
+                    ),
                   ),
                 ),
               ),
@@ -2072,35 +2380,65 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _buildDailyTab(),
         ],
       ),
-      bottomNavigationBar: Material(
-        color: scheme.surface,
-        child: SafeArea(
-          top: false,
-          child: TabBar(
-            controller: _tabController,
-            tabs: [
-              Tab(icon: const Icon(Icons.history), text: s.tabHistory),
-              Tab(icon: const Icon(Icons.camera_alt), text: s.tabMain),
-              Tab(icon: const Icon(Icons.local_fire_department), text: s.tabDaily),
-            ],
-            indicatorColor: scheme.primary,
-            labelColor: scheme.primary,
-            unselectedLabelColor: scheme.onSurfaceVariant,
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Meal builder toggle button above bottom navigation
+          Container(
+            width: double.infinity,
+            color: scheme.surface,
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: FilledButton.icon(
+                  onPressed: _toggleMealBuilder,
+                  icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
+                  label: Text(_mealBuilderActive ? 'Finish Meal' : 'Start Meal'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
+                    foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
+          // Bottom navigation bar
+          Material(
+            color: scheme.surface,
+            child: SafeArea(
+              top: false,
+              child: TabBar(
+                controller: _tabController,
+                tabs: [
+                  Tab(icon: const Icon(Icons.history), text: s.tabHistory),
+                  Tab(icon: const Icon(Icons.camera_alt), text: s.tabMain),
+                  Tab(icon: const Icon(Icons.local_fire_department), text: s.tabDaily),
+                ],
+                indicatorColor: scheme.primary,
+                labelColor: scheme.primary,
+                unselectedLabelColor: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   void _openSettings() {
-    final s = S.of(context);
-    final current = appSettings.locale?.languageCode ?? 'system';
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) {
-        return SafeArea(
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final s = S.of(context);
+            final current = appSettings.locale?.languageCode ?? 'system';
+            return SafeArea(
           child: SingleChildScrollView(
             padding: EdgeInsets.only(
               left: 0,
@@ -2111,32 +2449,51 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ListTile(
+                        title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Close settings',
+                    ),
+                  ],
+                ),
                 RadioListTile<String>(
                   value: 'system',
                   groupValue: current,
                   title: Text(s.systemLanguage),
-                  onChanged: (_) {
-                    appSettings.setLocale(null);
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(null);
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 RadioListTile<String>(
                   value: 'en',
                   groupValue: current,
                   title: const Text('English'),
-                  onChanged: (_) {
-                    appSettings.setLocale(const Locale('en'));
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(const Locale('en'));
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 RadioListTile<String>(
                   value: 'fr',
                   groupValue: current,
                   title: const Text('Français'),
-                  onChanged: (_) {
-                    appSettings.setLocale(const Locale('fr'));
-                    Navigator.pop(ctx);
+                  onChanged: (_) async {
+                    await appSettings.setLocale(const Locale('fr'));
+                    setDialogState(() {
+                      // Update the dialog state to reflect the change
+                    });
                   },
                 ),
                 const Divider(),
@@ -2173,6 +2530,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 ),
                 const Divider(),
                 SwitchListTile(
+                  value: _queueMode,
+                  title: Text(S.of(context).queueInBackground),
+                  subtitle: Text(kIsWeb 
+                    ? 'Web mode: 5-second delay simulation (no background service)'
+                    : S.of(context).queueInBackgroundHint),
+                  onChanged: (v) async {
+                    final enabled = v;
+                    setState(() => _queueMode = enabled);
+                    setDialogState(() => _queueMode = enabled);
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('queue_mode_enabled', enabled);
+                  },
+                ),
+                const Divider(),
+                SwitchListTile(
                   value: _announcementsDisabled,
                   title: Text(S.of(context).disableAnnouncements),
                   subtitle: Text(S.of(context).disableAnnouncementsHint),
@@ -2181,7 +2553,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     await prefs.setBool('disable_announcements_globally', v);
                     if (!mounted) return;
                     setState(() => _announcementsDisabled = v);
-                    Navigator.pop(ctx);
+                    setDialogState(() => _announcementsDisabled = v);
                   },
                 ),
                 const Divider(),
@@ -2191,7 +2563,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   subtitle: Text(s.daltonianModeHint),
                   onChanged: (v) async {
                     await appSettings.setDaltonian(v);
-                    if (mounted) Navigator.pop(ctx);
                   },
                 ),
                 const Divider(),
@@ -2231,6 +2602,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ],
             ),
           ),
+        );
+          },
         );
       },
     );
@@ -2475,158 +2848,675 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildMainTab() {
-    final s = S.of(context);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (_pendingMealGroup != null)
-          Card(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                children: [
-                  const Icon(Icons.restaurant, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(s.mealBuilderActive)),
-                  TextButton.icon(onPressed: _finishPendingMeal, icon: const Icon(Icons.check), label: Text(s.finishMeal)),
-                ],
-              ),
-            ),
-          ),
-        Card(
+  // Compact action button for the new experimental UI
+  Widget _buildCompactActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    required Color color,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final isEnabled = onPressed != null;
+    
+    // Responsive design based on screen width and text scale factor
+    final mediaQuery = MediaQuery.of(context);
+    final screenWidth = mediaQuery.size.width;
+    final textScaleFactor = mediaQuery.textScaleFactor;
+    
+    // Calculate responsive dimensions
+    final double buttonHeight;
+    final double iconSize;
+    final double fontSize;
+    final EdgeInsets padding;
+    final double borderRadius;
+    
+    if (screenWidth < 320) {
+      // Very small screens (old phones) - increased height for text visibility
+      buttonHeight = 56.0;
+      iconSize = 16.0;
+      fontSize = 9.0;
+      padding = const EdgeInsets.symmetric(horizontal: 4, vertical: 4);
+      borderRadius = 12.0;
+    } else if (screenWidth < 360) {
+      // Small screens - increased height for text visibility
+      buttonHeight = 60.0;
+      iconSize = 18.0;
+      fontSize = 10.0;
+      padding = const EdgeInsets.symmetric(horizontal: 6, vertical: 4);
+      borderRadius = 14.0;
+    } else if (screenWidth < 420) {
+      // Medium screens - increased height for text visibility
+      buttonHeight = 64.0;
+      iconSize = 20.0;
+      fontSize = 11.0;
+      padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 6);
+      borderRadius = 16.0;
+    } else {
+      // Large screens - increased height for text visibility
+      buttonHeight = 68.0;
+      iconSize = 22.0;
+      fontSize = 12.0;
+      padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+      borderRadius = 18.0;
+    }
+    
+    // Adjust for accessibility text scaling but keep it reasonable
+    final adjustedFontSize = (fontSize * textScaleFactor.clamp(0.8, 1.3));
+    final adjustedIconSize = (iconSize * textScaleFactor.clamp(0.8, 1.2));
+    final adjustedHeight = buttonHeight * textScaleFactor.clamp(0.9, 1.2);
+    
+    return Container(
+      height: adjustedHeight,
+      decoration: BoxDecoration(
+        color: isEnabled ? color.withOpacity(0.1) : scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: isEnabled ? color.withOpacity(0.3) : scheme.outline.withOpacity(0.2),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(borderRadius),
+          onTap: onPressed,
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: padding,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Enhanced input field with integrated Send button
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          labelText: s.describeMeal,
-                          hintText: s.describeMealHint,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          contentPadding: const EdgeInsets.all(16),
-                        ),
+                Icon(
+                  icon,
+                  color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                  size: adjustedIconSize,
+                ),
+                SizedBox(height: screenWidth < 360 ? 3 : 4),
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: adjustedFontSize,
+                        fontWeight: FontWeight.w500,
+                        color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Circular Send to AI button - aligned with bottom of text field
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
-                            child: Center(
-                              child: _loading && !_queueMode
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.send_rounded,
-                                      color: Colors.white,
-                                      size: 24,
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                CheckboxListTile(
-                  value: _queueMode,
-                  onChanged: (v) async {
-                    final enabled = v ?? false;
-                    setState(() => _queueMode = enabled);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('queue_mode_enabled', enabled);
-                  },
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(S.of(context).queueInBackground),
-                  subtitle: Text(S.of(context).queueInBackgroundHint),
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
-                const SizedBox(height: 16),
-                // Enhanced action buttons with responsive layout
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Check if we have enough width for side-by-side layout
-                    final isWideEnough = constraints.maxWidth > 400;
-                    
-                    if (isWideEnough) {
-                      // Side-by-side layout for wider screens
-                      return Row(
-                        children: [
-                          // Image capture section
-                          Expanded(child: _buildCaptureCard()),
-                          const SizedBox(width: 12),
-                          // Other actions section
-                          Expanded(child: _buildOtherCard()),
-                        ],
-                      );
-                    } else {
-                      // Vertical stack for narrow screens
-                      return Column(
-                        children: [
-                          _buildCaptureCard(),
-                          const SizedBox(height: 12),
-                          _buildOtherCard(),
-                        ],
-                      );
-                    }
-                  },
-                ),
-                if (_image != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(_image!.path),
-                      height: 200,
-                      fit: BoxFit.cover,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        if (_resultText.isNotEmpty) _FormattedResultCard(resultText: _resultText),
-      ],
+      ),
+    );
+  }
+
+  // Build queue area widget
+  Widget _buildQueueArea() {
+    final scheme = Theme.of(context).colorScheme;
+    
+    if (_queue.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: scheme.outline.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.queue_outlined, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Text(
+              'Queue is empty',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.queue_outlined, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Processing Queue',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _queue.map((job) {
+              final status = job['status']?.toString() ?? 'pending';
+              final isProcessing = status == 'in_progress';
+              final hasError = status == 'error';
+              
+              return Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: hasError 
+                    ? scheme.errorContainer 
+                    : scheme.primaryContainer,
+                  border: Border.all(
+                    color: hasError 
+                      ? scheme.error 
+                      : (isProcessing ? scheme.primary : scheme.outline),
+                    width: isProcessing ? 2 : 1,
+                  ),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Background icon
+                    Icon(
+                      hasError ? Icons.error : Icons.fastfood,
+                      color: hasError 
+                        ? scheme.onErrorContainer 
+                        : scheme.onPrimaryContainer,
+                      size: 24,
+                    ),
+                    // Loading animation overlay
+                    if (isProcessing)
+                      SizedBox(
+                        width: 50,
+                        height: 50,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build total nutrition bar for meal builder mode
+  Widget _buildTotalBar() {
+    if (!_mealBuilderActive || _currentMealResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    final scheme = Theme.of(context).colorScheme;
+    final s = S.of(context);
+    
+    // Calculate totals
+    int totalKcal = 0;
+    int totalCarbs = 0;
+    int totalProtein = 0;
+    int totalFat = 0;
+    
+    for (final result in _currentMealResults) {
+      totalKcal += (result['kcal'] as int?) ?? 0;
+      totalCarbs += (result['carbs'] as int?) ?? 0;
+      totalProtein += (result['protein'] as int?) ?? 0;
+      totalFat += (result['fat'] as int?) ?? 0;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.calculate, color: scheme.primary, size: 16),
+          const SizedBox(width: 8),
+          Text(
+            'Total:',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _CompactPill(label: "$totalKcal ${s.kcalSuffix}", color: Colors.redAccent),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalCarbs ${s.carbsSuffix}", color: _carbsColor(context)),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalProtein ${s.proteinSuffix}", color: Colors.teal),
+                  const SizedBox(width: 6),
+                  _CompactPill(label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Build result cards for meal builder mode
+  Widget _buildResultCards() {
+    if (!_mealBuilderActive || _currentMealResults.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    return Column(
+      children: _currentMealResults.map((result) {
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: _buildResultCard(result),
+        );
+      }).toList(),
+    );
+  }
+
+  // Build individual result card
+  Widget _buildResultCard(Map<String, dynamic> result) {
+    final scheme = Theme.of(context).colorScheme;
+    final name = result['name'] ?? result['description'] ?? 'Food Item';
+    final kcal = result['kcal'] as int?;
+    final grams = result['grams'] as int?;
+    
+    return Card(
+      elevation: 2,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: result['image'] != null
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _buildImageWidget(result['image'], width: 48, height: 48, fit: BoxFit.cover),
+              )
+            : Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.fastfood, color: scheme.onPrimaryContainer),
+              ),
+          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            '${kcal ?? 0} kcal${grams != null ? ' • ${grams}g' : ''}',
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
+          trailing: const Icon(Icons.expand_more),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (result['result'] != null)
+                    _FormattedResultCard(resultText: result['result']),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _currentMealResults.remove(result);
+                          });
+                        },
+                        icon: const Icon(Icons.remove_circle_outline, size: 16),
+                        label: const Text('Remove'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Show manual add menu
+  void _showManualAddMenu() {
+    final s = S.of(context);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Add Manually',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+              title: const Text('Add meal manually'),
+              subtitle: const Text('Enter nutrition information manually'),
+              onTap: () {
+                Navigator.pop(context);
+                _addManualFood();
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainTab() {
+    final s = S.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+
+
+          // Main input card with modern chat-like design
+          Container(
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+              border: Border.all(color: scheme.outline.withOpacity(0.1)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Modern input field with integrated send button
+                  Container(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: scheme.outline.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            maxLines: 1,
+                            decoration: InputDecoration(
+                              labelText: s.describeMeal,
+                              hintText: s.describeMealHint,
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              labelStyle: TextStyle(color: scheme.primary),
+                            ),
+                          ),
+                        ),
+                        // Send button inside text field
+                        Container(
+                          margin: const EdgeInsets.all(4),
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [scheme.primary, scheme.primary.withOpacity(0.8)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: scheme.primary.withOpacity(0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
+                              child: Center(
+                                child: _loading && !_queueMode
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.send_rounded,
+                                        color: scheme.onPrimary,
+                                        size: 18,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Image preview with clear guidance
+                  if (_image != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: _buildImageWidget(_image!, width: 50, height: 50, fit: BoxFit.cover),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Image attached',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: scheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Ready to upload. Please click on ',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: scheme.primary.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                          child: Icon(
+                                            Icons.send_rounded,
+                                            size: 12,
+                                            color: scheme.primary,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            ' or add more description',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => setState(() => _image = null),
+                                icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: scheme.surface.withOpacity(0.8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // Compact action buttons row with responsive spacing
+                  Row(
+                    children: [
+                      // Camera button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.photo_camera,
+                          label: 'Camera',
+                          onPressed: canUseCamera ? _captureImage : null,
+                          color: scheme.primary,
+                        ),
+                      ),
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      // Gallery button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.photo_library,
+                          label: 'Gallery',
+                          onPressed: _pickImage,
+                          color: scheme.secondary,
+                        ),
+                      ),
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                       // Barcode button
+                       Expanded(
+                         child: _buildCompactActionButton(
+                           icon: Icons.qr_code_scanner,
+                           label: 'Scan',
+                           onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : null,
+                           color: scheme.tertiary,
+                         ),
+                       ),
+                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      // Three-dot menu for manual adding with responsive sizing
+                      Builder(
+                        builder: (context) {
+                          final screenWidth = MediaQuery.of(context).size.width;
+                          final buttonSize = screenWidth < 360 ? 48.0 : 56.0;
+                          final iconSize = screenWidth < 360 ? 20.0 : 24.0;
+                          
+                          return Container(
+                            width: buttonSize,
+                            height: buttonSize,
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHigh,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: scheme.outline.withOpacity(0.2)),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () => _showManualAddMenu(),
+                                child: Icon(
+                                  Icons.more_vert,
+                                  color: scheme.onSurfaceVariant,
+                                  size: iconSize,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+
+
+                ],
+              ),
+            ),
+          ),
+
+          // Queue area (always visible)
+          _buildQueueArea(),
+
+          // Total nutrition bar (only in meal builder mode)
+          _buildTotalBar(),
+
+          // Result cards (only in meal builder mode)
+          _buildResultCards(),
+
+
+        ],
+      ),
     );
   }
 
@@ -2672,20 +3562,30 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'hcWritten': false,
     };
     setState(() {
-      _history.add(newMeal);
-      _pruneHistory();
+      // Handle meal builder mode vs normal mode
+      if (_mealBuilderActive) {
+        // Add to current meal results instead of history
+        _currentMealResults.add(newMeal);
+      } else {
+        // Normal mode: add to history and show popup
+        _history.add(newMeal);
+        _pruneHistory();
+      }
     });
-    await _saveHistory();
-    if (_pendingMealGroup != null) {
-      _appendToGroup(_pendingMealGroup!, newMeal);
+    
+    if (!_mealBuilderActive) {
       await _saveHistory();
     }
+
     if (mounted) {
-      _tabController.animateTo(0);
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted) _showMealDetails(newMeal);
-      });
-  _maybeOfferAddAnother(newMeal);
+      // Only switch to history tab and show popup in normal mode
+      if (!_mealBuilderActive) {
+        _tabController.animateTo(0);
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted) _showMealDetails(newMeal);
+        });
+      }
+
     }
     // Optionally, write to Health Connect if desired
     try {
@@ -2754,6 +3654,28 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   Future<_OffProduct?> _fetchOffProduct(String barcode) async {
+    // Check if we're in mock mode
+    if (_isMockMode) {
+      // Return mock product data
+      final mockProduct = _mockBarcodeProducts[barcode];
+      if (mockProduct != null) {
+        return _OffProduct.fromJson(mockProduct);
+      }
+      // If barcode not found in mock data, return a generic mock product
+      final genericMockProduct = {
+        'product_name': 'Mock Product',
+        'nutriments': {
+          'energy-kcal_100g': 200.0,
+          'carbohydrates_100g': 25.0,
+          'proteins_100g': 8.0,
+          'fat_100g': 7.0,
+        },
+        'serving_size': '100g',
+        'quantity': '100g',
+      };
+      return _OffProduct.fromJson(genericMockProduct);
+    }
+
     try {
       // Open Food Facts public API (no key required); "run the api on the device" interpreted as direct device-side HTTP call
       final uri = Uri.parse('https://world.openfoodfacts.org/api/v2/product/$barcode.json');
@@ -3023,7 +3945,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 if (meal['image'] != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(File(meal['image'].path), height: 220, fit: BoxFit.cover),
+                    child: _buildImageWidget(meal['image'], height: 220, fit: BoxFit.cover),
                   ),
                 const SizedBox(height: 8),
                 if (meal['description'] != null)
@@ -3066,8 +3988,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                 leading: imgPath != null && imgPath.isNotEmpty
                                     ? ClipRRect(
                                         borderRadius: BorderRadius.circular(8),
-                                        child: Image.file(
-                                          File(imgPath),
+                                        child: _buildImageWidget(
+                                          imgPath,
                                           width: 48,
                                           height: 48,
                                           fit: BoxFit.cover,
@@ -3129,7 +4051,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                           if (idx >= 0) {
                                             setState(() {
                                               _history.removeAt(idx);
-                                              if (identical(_pendingMealGroup, meal)) _pendingMealGroup = null;
+   
                                             });
                                             await _saveHistory();
                                           }
@@ -3183,16 +4105,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
+                          // Activate new meal builder and add this item to current results
                           setState(() {
-                            if (meal['isGroup'] == true) {
-                              _pendingMealGroup = meal;
+                            _mealBuilderActive = true;
+                            _currentMealResults.clear();
+                            if (meal['isGroup'] == true && meal['children'] is List) {
+                              // If it's a group, add all children to current results
+                              _currentMealResults.addAll((meal['children'] as List).cast<Map<String, dynamic>>());
                             } else {
-                              _startMealGroupWith(meal);
+                              // If it's a single item, add it to current results
+                              _currentMealResults.add(meal);
                             }
+                            // Remove the original meal from history since it's now in the builder
+                            _history.remove(meal);
                           });
                           await _saveHistory();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealBuilderActive)));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Meal builder activated - add more items!')));
                             Navigator.pop(ctx);
                             _tabController.animateTo(1); // Go to Main tab to add more
                           }
@@ -3494,92 +4423,51 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'hcWritten': false,
     };
     setState(() {
-      _history.add(newMeal);
-      _pruneHistory();
+      // Handle meal builder mode vs normal mode
+      if (_mealBuilderActive) {
+        // Add to current meal results instead of history
+        _currentMealResults.add(newMeal);
+      } else {
+        // Normal mode: add to history and show popup
+        _history.add(newMeal);
+        _pruneHistory();
+      }
     });
-    await _saveHistory();
-    // If building a meal, append inside current group
-    if (_pendingMealGroup != null) {
-      _appendToGroup(_pendingMealGroup!, newMeal);
+    
+    if (!_mealBuilderActive) {
       await _saveHistory();
     }
+
     if (!mounted) return;
-    _tabController.animateTo(0);
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (mounted) _showMealDetails(newMeal);
-    });
-    _maybeOfferAddAnother(newMeal);
+    
+    // Only switch to history tab and show popup in normal mode
+    if (!_mealBuilderActive) {
+      _tabController.animateTo(0);
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) _showMealDetails(newMeal);
+      });
+    }
+  
   }
 
-  void _maybeOfferAddAnother(Map<String, dynamic> newMeal) {
-    final s = S.of(context);
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(s.addAnotherQ, style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  if (_pendingMealGroup == null) {
-                    _startMealGroupWith(newMeal);
-                  } else {
-                    _appendToGroup(_pendingMealGroup!, newMeal);
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(s.mealStarted),
-                      action: SnackBarAction(label: s.finishMeal, onPressed: _finishPendingMeal),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.add),
-                label: Text(s.addAnother),
-              ),
-              const SizedBox(height: 8),
-              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.notNow)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
-  void _startMealGroupWith(Map<String, dynamic> first) {
-    final idx = _history.indexOf(first);
-    if (idx < 0) return;
-    final group = <String, dynamic>{
-      'isGroup': true,
-      'name': S.of(context).meal,
-      'time': first['time'],
-      'children': [first],
-      'image': first['image'],
-      'imagePath': first['imagePath'],
-      'hcWritten': false,
-    };
-    _recomputeGroupSums(group);
+
+
+
+  void _toggleMealBuilder() {
     setState(() {
-      _history[idx] = group;
-      _pendingMealGroup = group;
+      if (_mealBuilderActive) {
+        // Finish meal - group all current results and add to history
+        if (_currentMealResults.isNotEmpty) {
+          _finishCurrentMeal();
+        }
+        _mealBuilderActive = false;
+      } else {
+        // Start meal
+        _mealBuilderActive = true;
+        _currentMealResults.clear();
+      }
     });
-    // ignore: discarded_futures
-    _saveHistory();
-  }
-
-  void _appendToGroup(Map<String, dynamic> group, Map<String, dynamic> item) {
-    setState(() {
-      _history.remove(item);
-      (group['children'] as List).add(item);
-      _recomputeGroupSums(group);
-    });
-    // ignore: discarded_futures
-    _saveHistory();
   }
 
   void _recomputeGroupSums(Map<String, dynamic> group) {
@@ -3604,8 +4492,35 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     group['result'] = S.of(context).groupSummary(sumK, sumC, sumP, sumF);
   }
 
-  void _finishPendingMeal() {
-    setState(() => _pendingMealGroup = null);
+  void _finishCurrentMeal() {
+    if (_currentMealResults.isEmpty) return;
+    
+    // Create a grouped meal from current results
+    final group = <String, dynamic>{
+      'isGroup': true,
+      'name': S.of(context).meal,
+      'time': DateTime.now(),
+      'children': List.from(_currentMealResults),
+      'image': _currentMealResults.first['image'],
+      'imagePath': _currentMealResults.first['imagePath'],
+      'hcWritten': false,
+    };
+    
+    // Compute totals
+    _recomputeGroupSums(group);
+    
+    // Add to history
+    setState(() {
+      _history.add(group);
+      _currentMealResults.clear();
+      _pruneHistory();
+    });
+    
+    // Save and show feedback
+    _saveHistory();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Meal saved to history')),
+    );
   }
 
   // --- Formatting helpers ---
@@ -3689,7 +4604,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _history.removeAt(idx);
           final kids = (group['children'] as List).cast<Map<String, dynamic>>();
           _history.insertAll(idx, kids);
-          if (identical(_pendingMealGroup, group)) _pendingMealGroup = null;
+
         });
       }
     }
@@ -3732,11 +4647,3 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
 }
-
-// Moved Barcode scanner, OffProduct model, FormattedResultCard, and ExpandableDaySection to part files.
-
-// Moved remaining ExpandableDaySectionState and HistoryMealCard to part files.
-
-// Moved carbs color helper, ProgressBar, and Pill to part file.
-
-// Translations moved to l10n/translations.dart
