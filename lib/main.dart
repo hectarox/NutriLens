@@ -740,6 +740,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       await _reloadFromDisk();
       if (!mounted) return;
       _addNotification(S.of(context).resultSaved);
+      
+      // Show popup for the most recent result when background queue completes
+      // This ensures popups work in queue mode just like in direct processing
+      if (!_mealBuilderActive && _history.isNotEmpty) {
+        final mostRecent = _history.last;
+        // Use addPostFrameCallback for Android compatibility like in direct processing
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showMealDetails(mostRecent);
+          }
+        });
+      }
     });
     // Periodic fallback: watch SharedPreferences update markers to catch missed events
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
@@ -1461,6 +1473,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       };
       
       setState(() {
+        _resultText = const JsonEncoder.withIndent('  ').convert(localizedStructured);
         if (jobId != null) {
           final idx = _queue.indexWhere((j) => j['id'] == jobId);
           if (idx >= 0) _queue.removeAt(idx);
@@ -1475,9 +1488,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _history.add(newMeal);
           _pruneHistory();
         }
-        
-        // Clear result text since we don't show it on main page anymore
-        _resultText = '';
       });
       
       if (!_mealBuilderActive) {
@@ -1500,19 +1510,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _image = null;
             _controller.clear();
           });
-          // Only switch to history tab in normal mode
-          if (!_mealBuilderActive) {
+        }
+        
+        // Only switch to history tab and show popup in normal mode
+        if (!_mealBuilderActive) {
+          if (jobId == null) {
             _tabController.animateTo(0);
           }
+          // Direct popup call - no delays or callbacks
+          if (mounted) {
+            _showMealDetails(newMeal);
+          }
         }
-        _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
         
-        // Only show meal details popup in normal mode
-        if (!_mealBuilderActive) {
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted) _showMealDetails(newMeal);
-          });
-        }
+        _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
       }
       return;
     }
@@ -1677,6 +1688,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'hcWritten': false,
         };
         setState(() {
+          _resultText = pretty;
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
             if (idx >= 0) _queue.removeAt(idx);
@@ -1691,9 +1703,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _history.add(newMeal);
             _pruneHistory();
           }
-          
-          // Clear result text since we don't show it on main page anymore
-          _resultText = '';
         });
         
         if (!_mealBuilderActive) {
@@ -1717,19 +1726,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               _image = null;
               _controller.clear();
             });
-            // Only switch to history tab in normal mode
-            if (!_mealBuilderActive) {
+          }
+          
+          // Only switch to history tab and show popup in normal mode
+          if (!_mealBuilderActive) {
+            if (jobId == null) {
               _tabController.animateTo(0);
             }
-          }
-          _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
-          
-          // Only show meal details popup in normal mode
-          if (!_mealBuilderActive) {
-            Future.delayed(const Duration(milliseconds: 200), () {
-              if (mounted) _showMealDetails(newMeal);
+            // Try immediate popup call for Android compatibility
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _showMealDetails(newMeal);
+              }
             });
           }
+          
+          _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
         }
 
         // Try to sync to Health Connect (Android) when available
@@ -3581,8 +3593,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       // Only switch to history tab and show popup in normal mode
       if (!_mealBuilderActive) {
         _tabController.animateTo(0);
-        Future.delayed(const Duration(milliseconds: 200), () {
-          if (mounted) _showMealDetails(newMeal);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showMealDetails(newMeal);
+          }
         });
       }
 
@@ -3942,10 +3956,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (meal['image'] != null)
+                if (meal['image'] != null || meal['imagePath'] != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: _buildImageWidget(meal['image'], height: 220, fit: BoxFit.cover),
+                    child: _buildImageWidget(meal['image'] ?? meal['imagePath'], height: 220, fit: BoxFit.cover),
                   ),
                 const SizedBox(height: 8),
                 if (meal['description'] != null)
