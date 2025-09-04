@@ -709,8 +709,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   double? _todayTotalBurnedKcal;
   double? _todayActiveBurnedKcal;
   bool _loadingBurned = false;
-  // When set, newly added foods can be appended to this grouped meal until finished
-  Map<String, dynamic>? _pendingMealGroup;
+
   // Announcement
   bool _announcementChecked = false;
   bool _announcementsDisabled = false;
@@ -1488,10 +1487,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         await _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
       }
       
-      if (_pendingMealGroup != null) {
-        _appendToGroup(_pendingMealGroup!, newMeal);
-        await _saveHistory();
-      }
+
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3264,44 +3260,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Meal builder notification with modern styling
-          if (_pendingMealGroup != null)
-            Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [scheme.secondaryContainer, scheme.secondaryContainer.withOpacity(0.7)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: scheme.secondary.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: scheme.secondary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.restaurant, color: scheme.onSecondary, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(s.mealBuilderActive, style: TextStyle(fontWeight: FontWeight.w500))),
-                  FilledButton.icon(
-                    onPressed: _finishPendingMeal,
-                    icon: const Icon(Icons.check, size: 18),
-                    label: Text(s.finishMeal),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: scheme.secondary,
-                      foregroundColor: scheme.onSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+
 
           // Main input card with modern chat-like design
           Container(
@@ -4102,7 +4061,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                           if (idx >= 0) {
                                             setState(() {
                                               _history.removeAt(idx);
-                                              if (identical(_pendingMealGroup, meal)) _pendingMealGroup = null;
+   
                                             });
                                             await _saveHistory();
                                           }
@@ -4156,16 +4115,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
+                          // Activate new meal builder and add this item to current results
                           setState(() {
-                            if (meal['isGroup'] == true) {
-                              _pendingMealGroup = meal;
+                            _mealBuilderActive = true;
+                            _currentMealResults.clear();
+                            if (meal['isGroup'] == true && meal['children'] is List) {
+                              // If it's a group, add all children to current results
+                              _currentMealResults.addAll((meal['children'] as List).cast<Map<String, dynamic>>());
                             } else {
-                              _startMealGroupWith(meal);
+                              // If it's a single item, add it to current results
+                              _currentMealResults.add(meal);
                             }
+                            // Remove the original meal from history since it's now in the builder
+                            _history.remove(meal);
                           });
                           await _saveHistory();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealBuilderActive)));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Meal builder activated - add more items!')));
                             Navigator.pop(ctx);
                             _tabController.animateTo(1); // Go to Main tab to add more
                           }
@@ -4481,11 +4447,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (!_mealBuilderActive) {
       await _saveHistory();
     }
-    // If building a meal, append inside current group
-    if (_pendingMealGroup != null) {
-      _appendToGroup(_pendingMealGroup!, newMeal);
-      await _saveHistory();
-    }
+
     if (!mounted) return;
     
     // Only switch to history tab and show popup in normal mode
@@ -4500,35 +4462,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
 
 
-  void _startMealGroupWith(Map<String, dynamic> first) {
-    final idx = _history.indexOf(first);
-    if (idx < 0) return;
-    final group = <String, dynamic>{
-      'isGroup': true,
-      'name': S.of(context).meal,
-      'time': first['time'],
-      'children': [first],
-      'image': first['image'],
-      'imagePath': first['imagePath'],
-      'hcWritten': false,
-    };
-    _recomputeGroupSums(group);
-    setState(() {
-      _history[idx] = group;
-      _pendingMealGroup = group;
-    });
-    // ignore: discarded_futures
-    _saveHistory();
-  }
 
-  void _appendToGroup(Map<String, dynamic> group, Map<String, dynamic> item) {
+
+  void _toggleMealBuilder() {
     setState(() {
-      _history.remove(item);
-      (group['children'] as List).add(item);
-      _recomputeGroupSums(group);
+      if (_mealBuilderActive) {
+        // Finish meal - group all current results and add to history
+        if (_currentMealResults.isNotEmpty) {
+          _finishCurrentMeal();
+        }
+        _mealBuilderActive = false;
+      } else {
+        // Start meal
+        _mealBuilderActive = true;
+        _currentMealResults.clear();
+      }
     });
-    // ignore: discarded_futures
-    _saveHistory();
   }
 
   void _recomputeGroupSums(Map<String, dynamic> group) {
@@ -4551,26 +4500,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     group['protein'] = hasP ? sumP : null;
     group['fat'] = hasF ? sumF : null;
     group['result'] = S.of(context).groupSummary(sumK, sumC, sumP, sumF);
-  }
-
-  void _finishPendingMeal() {
-    setState(() => _pendingMealGroup = null);
-  }
-
-  void _toggleMealBuilder() {
-    setState(() {
-      if (_mealBuilderActive) {
-        // Finish meal - group all current results and add to history
-        if (_currentMealResults.isNotEmpty) {
-          _finishCurrentMeal();
-        }
-        _mealBuilderActive = false;
-      } else {
-        // Start meal
-        _mealBuilderActive = true;
-        _currentMealResults.clear();
-      }
-    });
   }
 
   void _finishCurrentMeal() {
@@ -4685,7 +4614,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _history.removeAt(idx);
           final kids = (group['children'] as List).cast<Map<String, dynamic>>();
           _history.insertAll(idx, kids);
-          if (identical(_pendingMealGroup, group)) _pendingMealGroup = null;
+
         });
       }
     }
