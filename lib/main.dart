@@ -4269,14 +4269,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             _mealBuilderActive = true;
                             _currentMealResults.clear();
                             if (meal['isGroup'] == true && meal['children'] is List) {
-                              // If it's a group, add all children to current results
-                              _currentMealResults.addAll((meal['children'] as List).cast<Map<String, dynamic>>());
+                              // If it's a group, add copies of all children to current results
+                              final childrenCopies = (meal['children'] as List)
+                                  .cast<Map<String, dynamic>>()
+                                  .map((child) => Map<String, dynamic>.from(child))
+                                  .toList();
+                              _currentMealResults.addAll(childrenCopies);
                             } else {
-                              // If it's a single item, add it to current results
-                              _currentMealResults.add(meal);
+                              // If it's a single item, create a copy to avoid reference issues
+                              final mealCopy = Map<String, dynamic>.from(meal);
+                              _currentMealResults.add(mealCopy);
                             }
                             // Remove the original meal from history since it's now in the builder
-                            _history.remove(meal);
+                            // Use removeWhere to ensure proper removal even if object references don't match
+                            _history.removeWhere((historyMeal) => 
+                              historyMeal['time'] == meal['time'] && 
+                              historyMeal['name'] == meal['name']);
                           });
                           await _saveHistory();
                           if (context.mounted) {
