@@ -19,12 +19,15 @@ class _HistoryMealCard extends StatelessWidget {
     final protein = meal['protein'] as int?;
     final fat = meal['fat'] as int?;
 
+    // Check if meal has an image - only show image widget if image exists
+    final hasImage = meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty);
+
     final Widget cardContent = Padding(
       padding: const EdgeInsets.all(12.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty))
+          if (hasImage)
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: _buildImageWidget(

@@ -3152,6 +3152,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               final status = job['status']?.toString() ?? 'pending';
               final isProcessing = status == 'in_progress';
               final hasError = status == 'error';
+              final imgPath = job['imagePath']?.toString();
+              final hasImage = imgPath != null && imgPath.isNotEmpty;
               
               return Container(
                 width: 60,
@@ -3171,14 +3173,24 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Background icon
-                    Icon(
-                      hasError ? Icons.error : Icons.fastfood,
-                      color: hasError 
-                        ? scheme.onErrorContainer 
-                        : scheme.onPrimaryContainer,
-                      size: 24,
-                    ),
+                    // Show food image if available, otherwise show icon
+                    if (hasImage && !hasError)
+                      ClipOval(
+                        child: _buildImageWidget(
+                          imgPath,
+                          width: 50,
+                          height: 50,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    else
+                      Icon(
+                        hasError ? Icons.error : Icons.fastfood,
+                        color: hasError 
+                          ? scheme.onErrorContainer 
+                          : scheme.onPrimaryContainer,
+                        size: 24,
+                      ),
                     // Loading animation overlay
                     if (isProcessing)
                       SizedBox(
@@ -3290,10 +3302,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
-          leading: result['image'] != null
+          leading: (result['image'] != null || (result['imagePath'] is String && (result['imagePath'] as String).isNotEmpty))
             ? ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: _buildImageWidget(result['image'], width: 48, height: 48, fit: BoxFit.cover),
+                child: _buildImageWidget(
+                  result['image'] ?? result['imagePath'], 
+                  width: 48, 
+                  height: 48, 
+                  fit: BoxFit.cover
+                ),
               )
             : Container(
                 width: 48,
@@ -4083,12 +4100,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (meal['image'] != null || meal['imagePath'] != null)
+                if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty)) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: _buildImageWidget(meal['image'] ?? meal['imagePath'], height: 220, fit: BoxFit.cover),
                   ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 8),
+                ],
                 if (meal['description'] != null)
                   Text(meal['description'], style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
