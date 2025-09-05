@@ -630,7 +630,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-// Helper function to create web-compatible image widgets
+// Helper function to create web-compatible image widgets with error handling
 Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, BoxFit? fit}) {
   if (kIsWeb) {
     // On web, use Image.network for XFile or Image.memory for bytes
@@ -638,20 +638,42 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
       return FutureBuilder<Uint8List>(
         future: imageSource.readAsBytes(),
         builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            return Image.memory(
-              snapshot.data!,
+          if (snapshot.connectionState == ConnectionState.done) {
+            if (snapshot.hasData && snapshot.data != null) {
+              try {
+                return Image.memory(
+                  snapshot.data!,
+                  width: width,
+                  height: height,
+                  fit: fit ?? BoxFit.cover,
+                );
+              } catch (e) {
+                // Handle image decoding errors
+                return Container(
+                  width: width,
+                  height: height,
+                  color: Colors.grey[300],
+                  child: const Icon(Icons.broken_image),
+                );
+              }
+            } else {
+              // Failed to read bytes
+              return Container(
+                width: width,
+                height: height,
+                color: Colors.grey[300],
+                child: const Icon(Icons.image_not_supported),
+              );
+            }
+          } else {
+            // Still loading
+            return Container(
               width: width,
               height: height,
-              fit: fit ?? BoxFit.cover,
+              color: Colors.grey[300],
+              child: const Icon(Icons.image),
             );
           }
-          return Container(
-            width: width,
-            height: height,
-            color: Colors.grey[300],
-            child: const Icon(Icons.image),
-          );
         },
       );
     } else if (imageSource is String) {
@@ -664,7 +686,7 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
       );
     }
   } else {
-    // On mobile platforms, use Image.file as normal
+    // On mobile platforms, use Image.file as normal with error handling
     String? path;
     if (imageSource is XFile) {
       path = imageSource.path;
@@ -673,12 +695,32 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
     }
     
     if (path != null) {
-      return Image.file(
-        File(path),
-        width: width,
-        height: height,
-        fit: fit ?? BoxFit.cover,
-      );
+      // Check if file exists before trying to load it
+      if (File(path).existsSync()) {
+        return Image.file(
+          File(path),
+          width: width,
+          height: height,
+          fit: fit ?? BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            // Handle image loading errors
+            return Container(
+              width: width,
+              height: height,
+              color: Colors.grey[300],
+              child: const Icon(Icons.broken_image),
+            );
+          },
+        );
+      } else {
+        // File doesn't exist
+        return Container(
+          width: width,
+          height: height,
+          color: Colors.grey[300],
+          child: const Icon(Icons.image_not_supported),
+        );
+      }
     }
   }
   
@@ -737,7 +779,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Live-refresh history/queue when background service writes results
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     _bgDbSub = FlutterBackgroundService().on('db_updated').listen((event) async {
-      await _reloadFromDisk();
+      await _reloadFromDiskWithMealBuilderSupport();
       if (!mounted) return;
       _addNotification(S.of(context).resultSaved);
       
@@ -767,7 +809,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (histMark != _lastHistMark || queueMark != _lastQueueMark) {
           _lastHistMark = histMark;
           _lastQueueMark = queueMark;
-          await _reloadFromDisk();
+          await _reloadFromDiskWithMealBuilderSupport();
         }
       } catch (_) {}
     });
@@ -804,12 +846,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (state == AppLifecycleState.resumed) {
       // Reload to reflect any background service updates
       // Do an immediate reload and a short delayed one to catch late writes
-      _reloadFromDisk();
+      _reloadFromDiskWithMealBuilderSupport();
       Future.delayed(const Duration(milliseconds: 750), () {
-        if (mounted) _reloadFromDisk();
+        if (mounted) _reloadFromDiskWithMealBuilderSupport();
       });
       Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) _reloadFromDisk();
+        if (mounted) _reloadFromDiskWithMealBuilderSupport();
       });
       _autoRetryPending();
     }
@@ -823,6 +865,29 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   await prefs.reload();
   await _loadQueue();
   await _loadHistory();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Reload from disk with meal builder support - checks if meal builder is active
+  // and routes background-processed items to the meal builder basket instead of history
+  Future<void> _reloadFromDiskWithMealBuilderSupport() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Pull latest values written by other isolates/processes
+      await prefs.reload();
+      await _loadQueue();
+      
+      // Check if meal builder is active
+      final mealBuilderActive = prefs.getBool('meal_builder_active') ?? false;
+      if (mealBuilderActive) {
+        // Load current meal results
+        await _loadCurrentMealResults();
+      }
+      
+      // Load history normally
+      await _loadHistory();
     } catch (_) {
       // ignore
     }
@@ -997,6 +1062,68 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       }
     } catch (_) {
       // ignore malformed history
+    }
+  }
+
+  // Load current meal results when meal builder is active
+  Future<void> _loadCurrentMealResults() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('current_meal_results_json');
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is List) {
+        final List<Map<String, dynamic>> loaded = [];
+        for (final e in decoded) {
+          if (e is Map) {
+            final m = Map<String, dynamic>.from(e);
+            // Ensure types
+            if (m['time'] is String) {
+              final t = DateTime.tryParse(m['time']);
+              if (t != null) m['time'] = t;
+            }
+            if (m['hcStart'] is String) {
+              final t = DateTime.tryParse(m['hcStart']);
+              if (t != null) m['hcStart'] = t; else m.remove('hcStart');
+            }
+            if (m['hcEnd'] is String) {
+              final t = DateTime.tryParse(m['hcEnd']);
+              if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
+            }
+            // Groups: normalize children
+            if (m['children'] is List) {
+              final List<Map<String, dynamic>> kids = [];
+              for (final c in (m['children'] as List)) {
+                if (c is Map) {
+                  final cm = Map<String, dynamic>.from(c);
+                  if (cm['time'] is String) {
+                    final t = DateTime.tryParse(cm['time']);
+                    if (t != null) cm['time'] = t;
+                  }
+                  if (cm['hcStart'] is String) {
+                    final t = DateTime.tryParse(cm['hcStart']);
+                    if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                  }
+                  if (cm['hcEnd'] is String) {
+                    final t = DateTime.tryParse(cm['hcEnd']);
+                    if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                  }
+                  kids.add(cm);
+                }
+              }
+              m['children'] = kids;
+            }
+            loaded.add(m);
+          }
+        }
+        setState(() {
+          _currentMealResults
+            ..clear()
+            ..addAll(loaded);
+        });
+      }
+    } catch (_) {
+      // ignore malformed current meal results
     }
   }
 
@@ -4482,6 +4609,42 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         _currentMealResults.clear();
       }
     });
+    
+    // Save meal builder state to SharedPreferences so background service can check it
+    _saveMealBuilderState();
+  }
+  
+  // Save meal builder state to SharedPreferences
+  Future<void> _saveMealBuilderState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('meal_builder_active', _mealBuilderActive);
+    
+    if (_mealBuilderActive) {
+      // Also save current meal results
+      Map<String, dynamic> toJson(Map<String, dynamic> x) {
+        return {
+          'isGroup': x['isGroup'] == true,
+          'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
+          'description': x['description'],
+          'name': x['name'],
+          'result': x['result'],
+          'structured': x['structured'],
+          'grams': x['grams'],
+          'kcal': x['kcal'],
+          'carbs': x['carbs'],
+          'protein': x['protein'],
+          'fat': x['fat'],
+          'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
+          'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
+          'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
+          'hcWritten': x['hcWritten'] == true,
+          if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
+        };
+      }
+      
+      final serializable = _currentMealResults.map((m) => toJson(m)).toList();
+      await prefs.setString('current_meal_results_json', json.encode(serializable));
+    }
   }
 
   void _recomputeGroupSums(Map<String, dynamic> group) {
@@ -4532,6 +4695,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     
     // Save and show feedback
     _saveHistory();
+    _saveMealBuilderState(); // Also save meal builder state
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Meal saved to history')),
     );
@@ -4549,6 +4713,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
+  
+  // Public wrapper methods for widgets
+  DateTime? asDateTime(dynamic t) => _asDateTime(t);
+  String formatTimeShort(DateTime t) => _formatTimeShort(t);
 
   // Normalize keys in a structured nutrition map to the current locale so UI shows consistent labels
   Map<String, dynamic> _localizedStructured(Map<String, dynamic> raw) {

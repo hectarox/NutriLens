@@ -58,7 +58,8 @@ class _HistoryMealCard extends StatelessWidget {
                       ),
                     ),
                     Builder(builder: (ctx) {
-                      final dt = context.findAncestorStateOfType<_MainScreenState>()?._asDateTime(meal['time']);
+                      final state = context.findAncestorStateOfType<_MainScreenState>();
+                      final dt = state?.asDateTime(meal['time']);
                       return dt == null
                           ? const SizedBox.shrink()
                           : Container(
@@ -68,7 +69,7 @@ class _HistoryMealCard extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
-                                context.findAncestorStateOfType<_MainScreenState>()!._formatTimeShort(dt),
+                                state!.formatTimeShort(dt),
                                 style: Theme.of(context).textTheme.labelSmall,
                               ),
                             );

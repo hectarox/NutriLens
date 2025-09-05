@@ -140,30 +140,63 @@ void _onStart(ServiceInstance service) {
         
         // Process mock data using same logic as real response
         final prefs = await SharedPreferences.getInstance();
-        final histRaw = prefs.getString('history_json');
-        List history = [];
-        if (histRaw != null && histRaw.isNotEmpty) {
-          try { history = json.decode(histRaw) as List; } catch (_) {}
+        
+        // Check if meal builder mode is active by checking for a flag
+        final mealBuilderActive = prefs.getBool('meal_builder_active') ?? false;
+        
+        if (mealBuilderActive) {
+          // Meal builder is active, add to current meal results instead of history
+          final currentMealRaw = prefs.getString('current_meal_results_json');
+          List currentMealResults = [];
+          if (currentMealRaw != null && currentMealRaw.isNotEmpty) {
+            try { currentMealResults = json.decode(currentMealRaw) as List; } catch (_) {}
+          }
+          
+          final newMeal = {
+            'imagePath': imagePath,
+            'description': description,
+            'name': foodName,
+            'result': pretty,
+            'structured': mockStructured,
+            'grams': weight,
+            'kcal': baseCalories,
+            'carbs': carbs,
+            'protein': protein,
+            'fat': fat,
+            'time': DateTime.now().toIso8601String(),
+            'hcWritten': false,
+          };
+          
+          currentMealResults.add(newMeal);
+          await prefs.setString('current_meal_results_json', json.encode(currentMealResults));
+          await prefs.setInt('current_meal_updated_at', DateTime.now().millisecondsSinceEpoch);
+        } else {
+          // Normal mode - update history
+          final histRaw = prefs.getString('history_json');
+          List history = [];
+          if (histRaw != null && histRaw.isNotEmpty) {
+            try { history = json.decode(histRaw) as List; } catch (_) {}
+          }
+          
+          final newMeal = {
+            'imagePath': imagePath,
+            'description': description,
+            'name': foodName,
+            'result': pretty,
+            'structured': mockStructured,
+            'grams': weight,
+            'kcal': baseCalories,
+            'carbs': carbs,
+            'protein': protein,
+            'fat': fat,
+            'time': DateTime.now().toIso8601String(),
+            'hcWritten': false,
+          };
+          
+          history.add(newMeal);
+          await prefs.setString('history_json', json.encode(history));
+          await prefs.setInt('history_updated_at', DateTime.now().millisecondsSinceEpoch);
         }
-        
-        final newMeal = {
-          'imagePath': imagePath,
-          'description': description,
-          'name': foodName,
-          'result': pretty,
-          'structured': mockStructured,
-          'grams': weight,
-          'kcal': baseCalories,
-          'carbs': carbs,
-          'protein': protein,
-          'fat': fat,
-          'time': DateTime.now().toIso8601String(),
-          'hcWritten': false,
-        };
-        
-        history.add(newMeal);
-        await prefs.setString('history_json', json.encode(history));
-        await prefs.setInt('history_updated_at', DateTime.now().millisecondsSinceEpoch);
         
         // Notify UI isolate to refresh
         try { service.invoke('db_updated', {'jobId': jobId, 'status': 'success'}); } catch (_) {}
@@ -313,31 +346,66 @@ void _onStart(ServiceInstance service) {
 
         // Append to history and remove from queue
         final prefs = await SharedPreferences.getInstance();
-        // Update history
-        final histRaw = prefs.getString('history_json');
-        List history = [];
-        if (histRaw != null && histRaw.isNotEmpty) {
-          try { history = json.decode(histRaw) as List; } catch (_) {}
+        
+        // Check if meal builder mode is active by checking for a flag
+        final mealBuilderActive = prefs.getBool('meal_builder_active') ?? false;
+        
+        if (mealBuilderActive) {
+          // Meal builder is active, add to current meal results instead of history
+          final currentMealRaw = prefs.getString('current_meal_results_json');
+          List currentMealResults = [];
+          if (currentMealRaw != null && currentMealRaw.isNotEmpty) {
+            try { currentMealResults = json.decode(currentMealRaw) as List; } catch (_) {}
+          }
+          
+          final newMeal = {
+            'imagePath': imagePath,
+            'description': description,
+            'name': mealName ?? (description.isNotEmpty ? description : null),
+            'result': pretty,
+            'structured': structured,
+            'grams': grams,
+            'kcal': kcal,
+            'carbs': carbs,
+            'protein': protein,
+            'fat': fat,
+            'time': DateTime.now().toIso8601String(),
+            'hcWritten': false,
+          };
+          
+          currentMealResults.add(newMeal);
+          await prefs.setString('current_meal_results_json', json.encode(currentMealResults));
+          await prefs.setInt('current_meal_updated_at', DateTime.now().millisecondsSinceEpoch);
+        } else {
+          // Normal mode - update history
+          final histRaw = prefs.getString('history_json');
+          List history = [];
+          if (histRaw != null && histRaw.isNotEmpty) {
+            try { history = json.decode(histRaw) as List; } catch (_) {}
+          }
+          
+          final newMeal = {
+            'imagePath': imagePath,
+            'description': description,
+            'name': mealName ?? (description.isNotEmpty ? description : null),
+            'result': pretty,
+            'structured': structured,
+            'grams': grams,
+            'kcal': kcal,
+            'carbs': carbs,
+            'protein': protein,
+            'fat': fat,
+            'time': DateTime.now().toIso8601String(),
+            'hcWritten': false,
+          };
+          
+          history.add(newMeal);
+          await prefs.setString('history_json', json.encode(history));
+          await prefs.setInt('history_updated_at', DateTime.now().millisecondsSinceEpoch);
         }
-        final newMeal = {
-          'imagePath': imagePath,
-          'description': description,
-          'name': mealName ?? (description.isNotEmpty ? description : null),
-          'result': pretty,
-          'structured': structured,
-          'grams': grams,
-          'kcal': kcal,
-          'carbs': carbs,
-          'protein': protein,
-          'fat': fat,
-          'time': DateTime.now().toIso8601String(),
-          'hcWritten': false,
-        };
-  history.add(newMeal);
-  await prefs.setString('history_json', json.encode(history));
-  await prefs.setInt('history_updated_at', DateTime.now().millisecondsSinceEpoch);
-  // Notify UI isolate to refresh
-  try { service.invoke('db_updated', {'jobId': jobId, 'status': 'success'}); } catch (_) {}
+        
+        // Notify UI isolate to refresh
+        try { service.invoke('db_updated', {'jobId': jobId, 'status': 'success'}); } catch (_) {}
 
         // Update queue
         final qRaw = prefs.getString('queue_json');
