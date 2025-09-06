@@ -772,6 +772,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     super.initState();
     WidgetsBinding.instance.addObserver(this);
   _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
+  // Rebuild when switching tabs so the meal button visibility updates
+  _tabController.addListener(() {
+    if (mounted) setState(() {});
+  });
+  // Also rebuild during swipe animations for predictive-like reveal
+  _tabController.animation?.addListener(() {
+    if (mounted) setState(() {});
+  });
   _loadPrefs();
   _loadHistory();
   _loadQueue();
@@ -2522,27 +2530,57 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Meal builder toggle button above bottom navigation
-          Container(
-            width: double.infinity,
-            color: scheme.surface,
-            child: SafeArea(
-              top: false,
-              bottom: false,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: FilledButton.icon(
-                  onPressed: _toggleMealBuilder,
-                  icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
-                  label: Text(_mealBuilderActive ? 'Finish Meal' : 'Start Meal'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
-                    foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+          // Meal builder toggle button above bottom navigation (predictive-like reveal on swipe)
+          Builder(
+            builder: (context) {
+              final anim = _tabController.animation;
+              final pos = anim?.value ?? _tabController.index.toDouble();
+              // Reveal is 1 at Main tab (index 1), 0 at other tabs (0 and 2).
+              double reveal = _mealBuilderActive
+                  ? 1.0
+                  : (1.0 - (pos - 1.0).abs()).clamp(0.0, 1.0);
+              // Ease for nicer motion
+              final eased = Curves.easeOutCubic.transform(reveal);
+
+              if (eased <= 0.0001 && !_mealBuilderActive) {
+                // Hidden and collapsed when not active and far from Main
+                return const SizedBox.shrink();
+              }
+
+              return ClipRect(
+                child: Align(
+                  heightFactor: eased,
+                  alignment: Alignment.topCenter,
+                  child: Opacity(
+                    opacity: eased,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - eased) * 8),
+                      child: Container(
+                        width: double.infinity,
+                        color: scheme.surface,
+                        child: SafeArea(
+                          top: false,
+                          bottom: false,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: FilledButton.icon(
+                              onPressed: _toggleMealBuilder,
+                              icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
+                              label: Text(_mealBuilderActive ? 'Finish Meal' : 'Start Meal'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
+                                foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
           // Bottom navigation bar
           Material(

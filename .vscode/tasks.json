@@ -2,14 +2,48 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "flutter-run-once",
+			"label": "run-production",
 			"type": "shell",
 			"command": "flutter",
 			"args": [
-				"run"
+				"run",
+				"--flavor",
+				"production",
+				"--dart-define=FLAVOR=production",
+				"--android-skip-build-dependency-validation",
+				"--release"
 			],
-			"problemMatcher": [
-				"$dart"
+			// Default build task: run production flavor
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "build-apk-production",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"build",
+				"apk",
+				"--release",
+				"--flavor",
+				"production",
+				"--dart-define=FLAVOR=production"
+			],
+			"group": "build"
+		},
+		{
+			"label": "build-appbundle-production",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"build",
+				"appbundle",
+				"--release",
+				"--flavor",
+				"production",
+				"--dart-define=FLAVOR=production"
 			],
 			"group": "build"
 		},
@@ -20,34 +54,6 @@
 			"args": [
 				"pub",
 				"get"
-			],
-			"problemMatcher": [
-				"$dart-json"
-			],
-			"group": "build"
-		},
-		{
-			"label": "flutter-run-once",
-			"type": "shell",
-			"command": "flutter",
-			"args": [
-				"run"
-			],
-			"problemMatcher": [
-				"$gcc"
-			],
-			"group": "build"
-		},
-		{
-			"label": "flutter-run-once",
-			"type": "shell",
-			"command": "flutter",
-			"args": [
-				"run",
-				"--android-skip-build-dependency-validation"
-			],
-			"problemMatcher": [
-				"$gcc"
 			],
 			"group": "build"
 		}
