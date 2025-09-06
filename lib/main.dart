@@ -762,6 +762,78 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Meal builder mode
   bool _mealBuilderActive = false;
   final List<Map<String, dynamic>> _currentMealResults = [];
+  int _idSeed = 0; // for generating stable IDs when missing
+
+  // --- Robust meal identity & deletion helpers with debug logging ---
+  String _assignMealId(Map<String, dynamic> meal) {
+    var id = meal['id'];
+    if (id is String && id.isNotEmpty) return id;
+    final dt = _asDateTime(meal['time']) ?? DateTime.now();
+    final base = dt.millisecondsSinceEpoch;
+    final salt = (_idSeed++ % 100000).toString().padLeft(5, '0');
+    id = 'm_${base}_$salt';
+    meal['id'] = id;
+    return id;
+  }
+
+  void _normalizeHistoryIds() {
+    for (final m in _history) {
+      _assignMealId(m);
+      if (m['children'] is List) {
+        for (final c in (m['children'] as List)) {
+          if (c is Map<String, dynamic>) _assignMealId(c);
+        }
+      }
+    }
+  }
+
+  bool _matchesBySignature(Map<String, dynamic> a, Map<String, dynamic> b) {
+    int? tsA = _asDateTime(a['time'])?.millisecondsSinceEpoch;
+    int? tsB = _asDateTime(b['time'])?.millisecondsSinceEpoch;
+    if (tsA != null && tsB != null && tsA == tsB) {
+      // extra fields to avoid accidental collisions
+      final fields = ['kcal', 'carbs', 'protein', 'fat', 'name', 'description'];
+      for (final f in fields) {
+        final va = a[f];
+        final vb = b[f];
+        if (va != null && vb != null && va.toString() != vb.toString()) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  int _removeMealEverywhere(Map<String, dynamic> target) {
+    int removed = 0;
+    final tid = (target['id'] is String) ? target['id'] as String : null;
+    // Remove in top-level
+    final beforeTop = _history.length;
+    _history.removeWhere((m) {
+      final mid = m['id'];
+      final match = (tid != null && mid is String && mid == tid) || _matchesBySignature(m, target);
+      if (match) debugPrint('[delete] Removing top-level meal id=${mid ?? 'null'} time=${_asDateTime(m['time'])}');
+      return match;
+    });
+    final removedTop = beforeTop - _history.length;
+    removed += removedTop;
+    if (removedTop > 0) debugPrint('[delete] Removed $removedTop top-level entries');
+    // Remove in groups
+    for (final m in _history) {
+      if (m['children'] is List) {
+        final children = m['children'] as List;
+        final before = children.length;
+        children.removeWhere((c) {
+          if (c is! Map<String, dynamic>) return false;
+          final mid = c['id'];
+          final match = (tid != null && mid is String && mid == tid) || _matchesBySignature(c, target);
+          if (match) debugPrint('[delete] Removing child meal id=${mid ?? 'null'} time=${_asDateTime(c['time'])}');
+          return match;
+        });
+        removed += (before - children.length);
+      }
+    }
+    return removed;
+  }
   StreamSubscription<dynamic>? _bgDbSub;
   Timer? _refreshTimer;
   int? _lastHistMark;
@@ -1062,10 +1134,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             loaded.add(m);
           }
         }
+        // Ensure each meal has a stable ID for reliable deletion
         setState(() {
           _history
             ..clear()
             ..addAll(loaded);
+          _normalizeHistoryIds();
         });
       }
     } catch (_) {
@@ -1137,6 +1211,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _saveHistory() async {
     final prefs = await SharedPreferences.getInstance();
+  debugPrint('[history] saving ${_history.length} items');
     Map<String, dynamic> toJson(Map<String, dynamic> x) {
       return {
         'isGroup': x['isGroup'] == true,
@@ -1158,7 +1233,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       };
     }
     final serializable = _history.map((m) => toJson(m)).toList();
-    await prefs.setString('history_json', json.encode(serializable));
+  await prefs.setString('history_json', json.encode(serializable));
+  debugPrint('[history] saved');
   }
 
   // Queue & notifications UI
@@ -1281,12 +1357,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               subtitle: Text('#${j['id']} • ${_formatTimeShort(created)} • $statusLabel'),
                               trailing: Wrap(spacing: 0, children: [
                                 IconButton(
-                                  tooltip: 'Retry',
+                                  tooltip: S.of(context).refreshBurned,
                                   icon: const Icon(Icons.refresh),
                                   onPressed: status == 'in_progress' ? null : () => _retryJob(j),
                                 ),
                                 IconButton(
-                                  tooltip: 'Remove',
+                                  tooltip: S.of(context).remove,
                                   icon: const Icon(Icons.close),
                                   onPressed: () async {
                                     setState(() { _queue.remove(j); });
@@ -1360,7 +1436,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     // Camera not supported on Linux/Windows/macOS via image_picker.
     if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera capture not supported on this platform. Use Pick Image instead.')),
+  SnackBar(content: Text(S.of(context).cameraNotSupported)),
       );
       return;
     }
@@ -2415,7 +2491,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                  child: FilledButton.icon(
                    onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : () {
                      ScaffoldMessenger.of(context).showSnackBar(
-                       SnackBar(content: Text('Barcode scanning not available in web mode')),
+                       SnackBar(content: Text(S.of(context).barcodeNotAvailable)),
                      );
                    },
                    icon: const Icon(Icons.qr_code_scanner, size: 16),
@@ -2566,7 +2642,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             child: FilledButton.icon(
                               onPressed: _toggleMealBuilder,
                               icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
-                              label: Text(_mealBuilderActive ? 'Finish Meal' : 'Start Meal'),
+                              label: Text(_mealBuilderActive ? S.of(context).finishMeal : S.of(context).startMeal),
                               style: FilledButton.styleFrom(
                                 backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
                                 foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
@@ -2998,6 +3074,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             return _HistoryMealCard(
               meal: meal,
               onDelete: () async {
+                debugPrint('[delete] Request to delete meal: id=${meal['id']} time=${_asDateTime(meal['time'])} name=${meal['name'] ?? meal['description']}');
                 // Attempt to delete from Health Connect if previously written
                 try {
                   await _ensureHealthConfigured();
@@ -3012,8 +3089,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
                     }
                   }
-                } catch (_) {}
-                setState(() => _history.remove(meal));
+                } catch (e, st) {
+                  debugPrint('[delete] HC delete error: $e\n$st');
+                }
+                // Ensure IDs for consistent matching
+                _normalizeHistoryIds();
+                if (meal['id'] == null) {
+                  // Assign an ID to the target in case it was missing
+                  _assignMealId(meal);
+                }
+                setState(() {
+                  final before = _history.length;
+                  final removed = _removeMealEverywhere(meal);
+                  final after = _history.length;
+                  debugPrint('[delete] Removed $removed entries; size $before -> $after');
+                });
                 await _saveHistory();
               },
               onTap: () => _showMealDetails(meal),
@@ -3149,10 +3239,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           children: [
             Icon(Icons.queue_outlined, color: scheme.onSurfaceVariant),
             const SizedBox(width: 12),
-            Text(
-              'Queue is empty',
-              style: TextStyle(color: scheme.onSurfaceVariant),
-            ),
+            Text(S.of(context).queueEmpty, style: TextStyle(color: scheme.onSurfaceVariant)),
           ],
         ),
       );
@@ -3174,7 +3261,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               Icon(Icons.queue_outlined, color: scheme.primary),
               const SizedBox(width: 8),
               Text(
-                'Processing Queue',
+                S.of(context).processingQueue,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: scheme.primary,
                   fontWeight: FontWeight.w600,
@@ -3284,7 +3371,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           Icon(Icons.calculate, color: scheme.primary, size: 16),
           const SizedBox(width: 8),
           Text(
-            'Total:',
+            '${S.of(context).totalLabel}:',
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: scheme.primary,
               fontWeight: FontWeight.w600,
@@ -3331,7 +3418,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Build individual result card
   Widget _buildResultCard(Map<String, dynamic> result) {
     final scheme = Theme.of(context).colorScheme;
-    final name = result['name'] ?? result['description'] ?? 'Food Item';
+    final name = result['name'] ?? result['description'] ?? S.of(context).foodItem;
     final kcal = result['kcal'] as int?;
     final grams = result['grams'] as int?;
     
@@ -3422,15 +3509,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              'Add Manually',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(s.addManuallyTitle, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 20),
             ListTile(
               leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
-              title: const Text('Add meal manually'),
-              subtitle: const Text('Enter nutrition information manually'),
+              title: Text(s.addManual),
+              subtitle: Text(s.describeMeal),
               onTap: () {
                 Navigator.pop(context);
                 _addManualFood();
@@ -3633,7 +3717,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       Expanded(
                         child: _buildCompactActionButton(
                           icon: Icons.photo_camera,
-                          label: 'Camera',
+                          label: S.of(context).takePhoto,
                           onPressed: canUseCamera ? _captureImage : null,
                           color: scheme.primary,
                         ),
@@ -3643,7 +3727,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       Expanded(
                         child: _buildCompactActionButton(
                           icon: Icons.photo_library,
-                          label: 'Gallery',
+                          label: S.of(context).pickImage,
                           onPressed: _pickImage,
                           color: scheme.secondary,
                         ),
@@ -3653,7 +3737,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                        Expanded(
                          child: _buildCompactActionButton(
                            icon: Icons.qr_code_scanner,
-                           label: 'Scan',
+                           label: S.of(context).scanBarcode,
                            onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : null,
                            color: scheme.tertiary,
                          ),
@@ -4318,11 +4402,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               final mealCopy = Map<String, dynamic>.from(meal);
                               _currentMealResults.add(mealCopy);
                             }
-                            // Remove the original meal from history since it's now in the builder
-                            // Use removeWhere to ensure proper removal even if object references don't match
-                            _history.removeWhere((historyMeal) => 
-                              historyMeal['time'] == meal['time'] && 
-                              historyMeal['name'] == meal['name']);
+                          });
+                          // Remove the original meal from history using robust helper
+                          _normalizeHistoryIds();
+                          if (meal['id'] == null) {
+                            _assignMealId(meal);
+                          }
+                          setState(() {
+                            final before = _history.length;
+                            final removed = _removeMealEverywhere(meal);
+                            final after = _history.length;
+                            debugPrint('[move-to-builder] Removed $removed entries; size $before -> $after');
                           });
                           await _saveHistory();
                           if (context.mounted) {
@@ -4511,9 +4601,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                   await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
                                 }
                               }
-                            } catch (_) {}
+                            } catch (e, st) {
+                              debugPrint('[delete] HC delete error: $e\n$st');
+                            }
+                            // Robust local removal with ID normalization and logging
+                            _normalizeHistoryIds();
+                            if (meal['id'] == null) {
+                              _assignMealId(meal);
+                            }
                             setState(() {
-                              _history.remove(meal);
+                              final before = _history.length;
+                              final removed = _removeMealEverywhere(meal);
+                              final after = _history.length;
+                              debugPrint('[delete] Removed $removed entries; size $before -> $after');
                             });
                             await _saveHistory();
                             if (context.mounted) {
@@ -4761,7 +4861,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     _saveHistory();
     _saveMealBuilderState(); // Also save meal builder state
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Meal saved to history')),
+      SnackBar(content: Text(S.of(context).resultSaved)),
     );
   }
 

@@ -108,8 +108,10 @@ class S {
   String get delete => _code == 'fr' ? 'Supprimer' : 'Delete';
   String get mealUpdated => _code == 'fr' ? 'Repas mis à jour' : 'Meal updated';
   String get addManual => _code == 'fr' ? 'Ajouter manuellement' : 'Add manually';
+  String get addManuallyTitle => _code == 'fr' ? 'Ajouter manuellement' : 'Add manually';
   String get mealBuilderActive => _code == 'fr' ? 'Construction d’un repas en cours' : 'Meal builder active';
   String get finishMeal => _code == 'fr' ? 'Terminer le repas' : 'Finish meal';
+  String get startMeal => _code == 'fr' ? 'Commencer le repas' : 'Start meal';
   String get restoreDefaults => _code == 'fr' ? 'Restaurer les valeurs par défaut' : 'Restore defaults';
   String get addAnotherQ => _code == 'fr' ? 'Ajouter un autre aliment à ce repas ?' : 'Add another item to this meal?';
   String get addAnother => _code == 'fr' ? 'Ajouter plus' : 'Add more';
@@ -148,7 +150,11 @@ class S {
   // Queue & notifications
   String get queueAndNotifications => _code == 'fr' ? 'File d\'attente et notifications' : 'Queue & notifications';
   String get backgroundQueue => _code == 'fr' ? 'File d\'attente en arrière-plan' : 'Background queue';
+  String get processingQueue => _code == 'fr' ? 'File en traitement' : 'Processing queue';
+  String get queueEmpty => _code == 'fr' ? 'File vide' : 'Queue is empty';
   String get noPendingJobs => _code == 'fr' ? 'Aucune tâche en attente' : 'No pending jobs';
+  String get foodItem => _code == 'fr' ? 'Aliment' : 'Food item';
+  String get totalNutrition => _code == 'fr' ? 'Nutrition totale' : 'Total nutrition';
   String get notifications => _code == 'fr' ? 'Notifications' : 'Notifications';
   String get noNotificationsYet => _code == 'fr' ? 'Aucune notification pour l\'instant' : 'No notifications yet';
   String get statusPending => _code == 'fr' ? 'en attente' : 'pending';
@@ -171,6 +177,7 @@ class S {
     : 'Leave empty for full package quantity, or enter a custom amount.';
   String get exampleNumber => _code == 'fr' ? 'Ex: 330' : 'e.g. 330';
   String get scanBarcodeTitle => _code == 'fr' ? 'Scanner le code‑barres' : 'Scan barcode';
+  String get barcodeNotAvailable => _code == 'fr' ? 'Le scan de code‑barres n’est pas disponible sur cette plateforme' : 'Barcode scanning is not available on this platform';
 
   // Auth & account
   String get login => _code == 'fr' ? 'Connexion' : 'Login';
@@ -205,4 +212,7 @@ class S {
       : 'Import will replace your current history. Continue?';
   String get importSuccess => _code == 'fr' ? 'Historique importé' : 'History imported';
   String get importFailed => _code == 'fr' ? 'Échec de l\'import' : 'Import failed';
+  
+  // Generic actions
+  String get retry => _code == 'fr' ? 'Réessayer' : 'Retry';
 }
