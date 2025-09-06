@@ -109,6 +109,12 @@ class _HistoryMealCard extends StatelessWidget {
                         label: '$fat ${s.fatSuffix}',
                         color: Colors.purple,
                       ),
+                    if (meal['grams'] != null)
+                      _Pill(
+                        icon: Icons.scale,
+                        label: '${meal['grams']} g',
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 6),

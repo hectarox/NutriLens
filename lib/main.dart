@@ -1700,8 +1700,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _pruneHistory();
         }
       });
-      
-      if (!_mealBuilderActive) {
+      // Persist immediately
+      if (_mealBuilderActive) {
+        await _saveMealBuilderState();
+      } else {
         await _saveHistory();
       }
       if (jobId != null) { await _saveQueue(); }
@@ -1915,8 +1917,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _pruneHistory();
           }
         });
-        
-        if (!_mealBuilderActive) {
+        // Persist immediately
+        if (_mealBuilderActive) {
+          await _saveMealBuilderState();
+        } else {
           await _saveHistory();
         }
         if (jobId != null) { await _saveQueue(); }
@@ -3465,10 +3469,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: () {
+                        onPressed: () async {
                           setState(() {
                             _currentMealResults.remove(result);
                           });
+                          await _saveMealBuilderState();
                         },
                         icon: const Icon(Icons.remove_circle_outline, size: 16),
                         label: const Text('Remove'),
@@ -3850,8 +3855,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         _pruneHistory();
       }
     });
-    
-    if (!_mealBuilderActive) {
+    // Persist to disk so periodic reloads don't wipe in-memory state
+    if (_mealBuilderActive) {
+      await _saveMealBuilderState();
+    } else {
       await _saveHistory();
     }
 
@@ -4378,6 +4385,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       _Pill(icon: Icons.egg_alt, label: "${meal['protein']} ${S.of(context).proteinSuffix}", color: Colors.teal),
                     if (meal['fat'] != null)
                       _Pill(icon: Icons.blur_on, label: "${meal['fat']} ${S.of(context).fatSuffix}", color: Colors.purple),
+                    if (meal['grams'] != null)
+                      _Pill(icon: Icons.scale, label: "${meal['grams']} g", color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -4415,6 +4424,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             debugPrint('[move-to-builder] Removed $removed entries; size $before -> $after');
                           });
                           await _saveHistory();
+                          // Persist meal builder state too since builder was just activated
+                          if (_mealBuilderActive) {
+                            await _saveMealBuilderState();
+                          }
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Meal builder activated - add more items!')));
                             Navigator.pop(ctx);
