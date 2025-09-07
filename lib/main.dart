@@ -749,7 +749,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   HealthConnectSdkStatus? _hcSdkStatus;
   // Health: energy burned cache for today
   double? _todayTotalBurnedKcal;
-  double? _todayActiveBurnedKcal;
   bool _loadingBurned = false;
 
   // Announcement
@@ -2212,16 +2211,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (mounted) setState(() => _healthLastError = 'Permission denied for TOTAL_CALORIES_BURNED');
         return;
       }
-      // Optional permission: ACTIVE_ENERGY_BURNED (may be unavailable on some devices)
-      bool activeGranted = false;
-      try {
-        activeGranted = await _health.requestAuthorization(
-          [HealthDataType.ACTIVE_ENERGY_BURNED],
-          permissions: const [HealthDataAccess.READ],
-        );
-      } catch (_) {
-        activeGranted = false;
-      }
       if (mounted) setState(() => _loadingBurned = true);
       // Fetch TOTAL points
       final totalPoints = await _health.getHealthDataFromTypes(
@@ -2235,30 +2224,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (v == null || !v.isFinite) continue;
         sumTotal += v;
       }
-      // Fetch ACTIVE if granted
-      double? sumActive;
-      if (activeGranted) {
-        try {
-          final activePoints = await _health.getHealthDataFromTypes(
-            startTime: start,
-            endTime: end,
-            types: const [HealthDataType.ACTIVE_ENERGY_BURNED],
-          );
-          double tmp = 0.0;
-          for (final dp in activePoints) {
-            final v = _asDouble(dp.value);
-            if (v == null || !v.isFinite) continue;
-            tmp += v;
-          }
-          sumActive = tmp;
-        } catch (_) {
-          sumActive = null;
-        }
-      }
       final total = sumTotal;
       if (mounted) {
         setState(() {
-          _todayActiveBurnedKcal = sumActive;
           _todayTotalBurnedKcal = total;
         });
       }
@@ -3819,6 +3787,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final qty = await _askQuantity(defaultServing: product.servingSizeGrams);
     if (!mounted) return;
     final grams = qty?.trim().isEmpty == true ? product.servingSizeGrams : int.tryParse(qty ?? '');
+    // Optionally download OFF product image and persist locally
+    String? persistedImagePath;
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isLinux || Platform.isMacOS || Platform.isWindows)) {
+      final url = product.imageUrl;
+      if (url != null && url.isNotEmpty) {
+        try {
+          final res = await http.get(Uri.parse(url));
+          if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
+            final dir = await getApplicationDocumentsDirectory();
+            final fname = 'off_${code}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+            final file = File('${dir.path}/$fname');
+            await file.writeAsBytes(res.bodyBytes);
+            persistedImagePath = file.path;
+          }
+        } catch (_) {}
+      }
+    }
     // Build meal from OFF nutrients (per 100g scaled or per serving)
     final scaled = product.scaleFor(grams);
     final localizedStructured = _localizedStructured({
@@ -3831,7 +3816,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     });
     final newMeal = {
       'image': null,
-      'imagePath': null,
+      'imagePath': persistedImagePath,
   'description': product.name ?? S.of(context).packagedFood,
       'name': product.name,
       'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
@@ -4076,18 +4061,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       color: Colors.blueAccent,
                     ),
                     const SizedBox(height: 12),
-                    // Active burned only
-                    if (_todayActiveBurnedKcal != null) ...[
-                      Text('${s.activeLabel}: ${_todayActiveBurnedKcal!.round()} ${s.kcalSuffix}'),
-                      const SizedBox(height: 8),
-                      _ProgressBar(
-                        value: todayKcal <= 0
-                            ? 0
-                            : (_todayActiveBurnedKcal! / todayKcal).clamp(0.0, 1.5),
-                        color: Colors.orangeAccent,
-                      ),
-                      const SizedBox(height: 12),
-                    ],
                     Builder(builder: (_) {
                       final burned = _todayTotalBurnedKcal?.round() ?? 0;
                       final net = todayKcal - burned; // positive -> surplus, negative -> deficit

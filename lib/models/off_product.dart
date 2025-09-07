@@ -2,6 +2,7 @@ part of '../main.dart';
 
 class _OffProduct {
   final String? name;
+  final String? imageUrl;
   final int? servingSizeGrams; // parsed from serving_size when possible
   final int? packageSizeGrams; // parsed from quantity (full package)
   final double? kcalPer100g;
@@ -9,10 +10,24 @@ class _OffProduct {
   final double? proteinPer100g;
   final double? fatPer100g;
 
-  _OffProduct({this.name, this.servingSizeGrams, this.packageSizeGrams, this.kcalPer100g, this.carbsPer100g, this.proteinPer100g, this.fatPer100g});
+  _OffProduct({this.name, this.imageUrl, this.servingSizeGrams, this.packageSizeGrams, this.kcalPer100g, this.carbsPer100g, this.proteinPer100g, this.fatPer100g});
 
   static _OffProduct? fromJson(Map<String, dynamic> p) {
     String? name = (p['product_name'] ?? p['generic_name']) as String?;
+    // Prefer front image, then generic image
+    String? imgUrl = (p['image_front_url'] ?? p['image_url'] ?? p['image_front_small_url'] ?? p['image_small_url']) as String?;
+    // Try selected_images path if available
+    if (imgUrl == null && p['selected_images'] is Map) {
+      final sel = p['selected_images'] as Map;
+      final front = sel['front'];
+      if (front is Map) {
+        final display = front['display'];
+        if (display is Map) {
+          // Try common locale keys
+          imgUrl = (display['en'] ?? display['en_US'] ?? display['fr'] ?? display.values.cast<String?>().firstWhere((e) => e != null, orElse: () => null)) as String?;
+        }
+      }
+    }
     final nutriments = p['nutriments'] as Map<String, dynamic>?;
     double? kcal100, carbs100, protein100, fat100;
     if (nutriments != null) {
@@ -39,6 +54,7 @@ class _OffProduct {
     }
     return _OffProduct(
       name: name,
+  imageUrl: imgUrl,
       servingSizeGrams: servingSizeGrams,
       packageSizeGrams: packageSizeGrams,
       kcalPer100g: kcal100,

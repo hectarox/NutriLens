@@ -78,11 +78,10 @@ class S {
   String get deficitLabel => _code == 'fr' ? 'Déficit' : 'Deficit';
   String get netKcalLabel => _code == 'fr' ? 'Net' : 'Net';
   String get totalLabel => _code == 'fr' ? 'Total' : 'Total';
-  String get activeLabel => _code == 'fr' ? 'Actives' : 'Active';
-  String get burnedHelp => _code == 'fr' ? 'Différence Total vs Actives' : 'Total vs Active difference';
+  String get burnedHelp => _code == 'fr' ? 'Calories brûlées et nettes' : 'Burned and net calories';
   String get burnedHelpText => _code == 'fr'
-      ? 'Total = Basal (métabolisme au repos) + Actives (activité). Actives n’inclut pas le métabolisme de base.'
-      : 'Total = Basal (resting metabolic) + Active (activity). Active excludes resting metabolic energy.';
+      ? 'Total inclut le métabolisme de base et l’activité. Le Net compare vos apports consommés au Total brûlé.'
+      : 'Total includes resting metabolic and activity. Net compares your consumed intake to total burned.';
   String get ok => _code == 'fr' ? 'OK' : 'OK';
 
   String get result => _code == 'fr' ? 'Résultat' : 'Result';
