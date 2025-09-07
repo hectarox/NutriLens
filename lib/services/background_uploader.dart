@@ -76,9 +76,9 @@ Future<void> initializeBgService(FlutterLocalNotificationsPlugin notifs) async {
       isForegroundMode: false,
       autoStart: false,
       notificationChannelId: 'meal_queue',
-      // No initial foreground notification
-      initialNotificationTitle: '',
-      initialNotificationContent: '',
+  // Avoid blank notifications on some OEMs by providing non-empty placeholders
+  initialNotificationTitle: 'Meal Queue',
+  initialNotificationContent: 'Idle',
     ),
     iosConfiguration: IosConfiguration(),
   );
@@ -91,6 +91,9 @@ void _onStart(ServiceInstance service) {
   final notifs = FlutterLocalNotificationsPlugin();
   const init = InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher'));
   notifs.initialize(init);
+  // Clear any stray/blank notifications that might appear when the service starts
+  // (seen on some devices if an empty initial notification slips through)
+  notifs.cancelAll();
   // Optionally listen for commands
   service.on('process').listen((data) async {
     if (data == null) return;
@@ -224,7 +227,11 @@ void _onStart(ServiceInstance service) {
           ),
         );
         await notifs.cancel(jobId.hashCode);
-        await notifs.show(jobId.hashCode, 'Mock Result', 'Mock result saved', details);
+        final t1 = 'Mock Result';
+        final b1 = 'Mock result saved';
+        if (t1.trim().isNotEmpty || b1.trim().isNotEmpty) {
+          await notifs.show(jobId.hashCode, t1, b1, details);
+        }
         return;
       }
       final uri = Uri.parse('$baseUrl/data');
@@ -430,7 +437,11 @@ void _onStart(ServiceInstance service) {
           ),
         );
         await notifs.cancel(jobId.hashCode);
-        await notifs.show(jobId.hashCode, 'Result', 'Result saved', details);
+        final t2 = 'Result';
+        final b2 = 'Result saved';
+        if (t2.trim().isNotEmpty || b2.trim().isNotEmpty) {
+          await notifs.show(jobId.hashCode, t2, b2, details);
+        }
       } else {
         // Mark job as error
         final prefs = await SharedPreferences.getInstance();
@@ -460,7 +471,11 @@ void _onStart(ServiceInstance service) {
             visibility: NotificationVisibility.public,
           ),
         );
-        await notifs.show(jobId.hashCode, 'Upload failed', 'Tap to retry later', details);
+        final t3 = 'Upload failed';
+        final b3 = 'Tap to retry later';
+        if (t3.trim().isNotEmpty || b3.trim().isNotEmpty) {
+          await notifs.show(jobId.hashCode, t3, b3, details);
+        }
       }
     } catch (e) {
       // Persist error state

@@ -226,7 +226,10 @@ void main() async {
   try {
     final launch = await _notifs.getNotificationAppLaunchDetails();
     if (launch?.didNotificationLaunchApp == true) {
-      _initialNotifPayload = launch?.notificationResponse?.payload;
+      final payload = launch?.notificationResponse?.payload;
+      if (payload != null && payload.isNotEmpty) {
+        _initialNotifPayload = payload;
+      }
     }
   } catch (_) {}
   // Configure background service once at startup (Android/iOS only)
