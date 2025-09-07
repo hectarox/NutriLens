@@ -1,7 +1,9 @@
 # NutriLens app + backend
 An AI powered meal manager with insane accuracy. Supports English & French.
+
+
     
-<img width="244" height="520" alt="image 1" src="https://github.com/user-attachments/assets/eeab6532-414d-4e97-be79-911abc05bb3a" /><img width="244" height="520" alt="image 2" src="https://github.com/user-attachments/assets/3474fabb-6964-4649-8f25-84b966dfcc7d" /><img width="244" height="520" alt="image 3" src="https://github.com/user-attachments/assets/d9456c38-0a1e-4f24-81ad-96f950a0f352" />
+<img width="244" height="520" alt="image 1" src="https://github.com/user-attachments/assets/80a30e4c-30e9-41d6-bc8f-37f71976f449" /><img width="244" height="520" alt="image 2" src="https://github.com/user-attachments/assets/10d2a03f-e071-4745-9ecc-d78bccf2995e" /><img width="244" height="520" alt="image 3" src="https://github.com/user-attachments/assets/06baf02d-2650-4db5-8cde-4844b3af3d36" />
 
 
   
@@ -105,4 +107,5 @@ flutter build apk --release
 - In the app, login with these credentials.
 - If prompted to set a new password, complete that step; the app will route to the main screen afterward.
 </details>
+
 
