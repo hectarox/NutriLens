@@ -70,6 +70,10 @@ Future<void> _initNotifications() async {
 // Preparing/queued notification disabled per request; function removed
 
 Future<void> _notifyDone({required String jobId, required String title, required String body, String? payload}) async {
+  // Prevent accidental blank notifications
+  final t = title.trim();
+  final b = body.trim();
+  if (t.isEmpty && b.isEmpty) return;
   await _notifs.cancel(jobId.hashCode);
   final details = NotificationDetails(
     android: AndroidNotificationDetails(
@@ -81,7 +85,7 @@ Future<void> _notifyDone({required String jobId, required String title, required
       visibility: NotificationVisibility.public,
     ),
   );
-  await _notifs.show(jobId.hashCode, title, body, details, payload: payload);
+  await _notifs.show(jobId.hashCode, t.isEmpty ? null : t, b.isEmpty ? null : b, details, payload: (payload != null && payload.isEmpty) ? null : payload);
 }
 
 @pragma('vm:entry-point')
