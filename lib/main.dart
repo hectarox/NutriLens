@@ -1086,7 +1086,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
   _serverHostOverride = prefs.getString('server_host');
   _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
-  _queueMode = prefs.getBool('queue_mode_enabled') ?? (!kIsWeb); // default: on for mobile, off for web
+  // Default: disabled everywhere unless user enabled previously
+  _queueMode = prefs.getBool('queue_mode_enabled') ?? false;
     });
   }
 
