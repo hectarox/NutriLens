@@ -3402,7 +3402,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final kcal = result['kcal'] as int?;
     final grams = result['grams'] as int?;
     
-    return Card(
+  return Card(
       elevation: 2,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -3431,13 +3431,154 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             '${kcal ?? 0} kcal${grams != null ? ' • ${grams}g' : ''}',
             style: TextStyle(color: scheme.onSurfaceVariant),
           ),
-          trailing: const Icon(Icons.expand_more),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: S.of(context).edit,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                onPressed: () async {
+                  // Open edit dialog similar to history edit
+                  final updated = await showDialog<Map<String, dynamic>>(
+                    context: context,
+                    builder: (ctx) {
+                      final nameCtrl = TextEditingController(text: result['name']?.toString() ?? '');
+                      final kcalCtrl = TextEditingController(text: result['kcal']?.toString() ?? '');
+                      final carbsCtrl = TextEditingController(text: result['carbs']?.toString() ?? '');
+                      final proteinCtrl = TextEditingController(text: result['protein']?.toString() ?? '');
+                      final fatCtrl = TextEditingController(text: result['fat']?.toString() ?? '');
+                      final int? defaultG = result['grams'] as int?;
+                      final gramsCtrl = TextEditingController(text: (defaultG?.toString() ?? ''));
+                      bool linkValues = true;
+                      final oldK = result['kcal'] as int?;
+                      final oldC = result['carbs'] as int?;
+                      final oldP = result['protein'] as int?;
+                      final oldF = result['fat'] as int?;
+                      final int? oldG = defaultG;
+                      return StatefulBuilder(
+                        builder: (context, setSB) => AlertDialog(
+                          title: Text(S.of(context).editMeal),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                                const SizedBox(height: 8),
+                                TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                                CheckboxListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  value: linkValues,
+                                  onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                  title: Text(S.of(context).linkValues),
+                                ),
+                                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                                const SizedBox(height: 8),
+                                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
+                            FilledButton(
+                              onPressed: () {
+                                int? newG = int.tryParse(gramsCtrl.text.trim());
+                                int? newK = int.tryParse(kcalCtrl.text.trim());
+                                int? newC = int.tryParse(carbsCtrl.text.trim());
+                                int? newP = int.tryParse(proteinCtrl.text.trim());
+                                int? newF = int.tryParse(fatCtrl.text.trim());
+                                if (linkValues) {
+                                  double? factor;
+                                  if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                    factor = newC / oldC;
+                                  } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                    factor = newP / oldP;
+                                  } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                    factor = newF / oldF;
+                                  } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                    factor = newK / oldK;
+                                  } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
+                                    factor = newG / oldG;
+                                  }
+                                  if (factor != null) {
+                                    if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
+                                    if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
+                                    if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
+                                    if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
+                                    if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                  }
+                                }
+                                Navigator.pop(ctx, {
+                                  'name': nameCtrl.text.trim(),
+                                  'grams': newG,
+                                  'kcal': newK,
+                                  'carbs': newC,
+                                  'protein': newP,
+                                  'fat': newF,
+                                });
+                              },
+                              child: Text(S.of(context).save),
+                            )
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                  if (updated != null) {
+                    setState(() {
+                      if ((updated['name'] as String?)?.isNotEmpty == true) result['name'] = updated['name'];
+                      if (updated['grams'] != null) result['grams'] = updated['grams'];
+                      result['kcal'] = updated['kcal'];
+                      result['carbs'] = updated['carbs'];
+                      result['protein'] = updated['protein'];
+                      result['fat'] = updated['fat'];
+                    });
+                    await _saveMealBuilderState();
+                  }
+                },
+              ),
+              const Icon(Icons.expand_more),
+            ],
+          ),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Nutrition pills (visible when expanded)
+                  Builder(builder: (_) {
+                    final k = result['kcal'] as int?;
+                    final c = result['carbs'] as int?;
+                    final p = result['protein'] as int?;
+                    final f = result['fat'] as int?;
+                    final g = result['grams'] as int?;
+                    if (k == null && c == null && p == null && f == null && g == null) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (k != null)
+                            _Pill(icon: Icons.local_fire_department, label: '$k ${S.of(context).kcalSuffix}', color: Colors.redAccent),
+                          if (c != null)
+                            _Pill(icon: Icons.grain, label: '$c ${S.of(context).carbsSuffix}', color: _carbsColor(context)),
+                          if (p != null)
+                            _Pill(icon: Icons.egg_alt, label: '$p ${S.of(context).proteinSuffix}', color: Colors.teal),
+                          if (f != null)
+                            _Pill(icon: Icons.blur_on, label: '$f ${S.of(context).fatSuffix}', color: Colors.purple),
+                          if (g != null)
+                            _Pill(icon: Icons.scale, label: '${g} g', color: Theme.of(context).colorScheme.primary),
+                        ],
+                      ),
+                    );
+                  }),
                   if (result['result'] != null)
                     _FormattedResultCard(resultText: result['result']),
                   const SizedBox(height: 8),
@@ -3452,7 +3593,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           await _saveMealBuilderState();
                         },
                         icon: const Icon(Icons.remove_circle_outline, size: 16),
-                        label: const Text('Remove'),
+                        label: Text(S.of(context).remove),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),

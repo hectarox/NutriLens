@@ -11,7 +11,7 @@
 				"production",
 				"--dart-define=FLAVOR=production",
 				"--android-skip-build-dependency-validation",
-				"--release"
+				"--debug"
 			],
 			// Default build task: run production flavor
 			"group": {
@@ -26,7 +26,7 @@
 			"args": [
 				"build",
 				"apk",
-				"--release",
+				"--debug",
 				"--flavor",
 				"production",
 				"--dart-define=FLAVOR=production"
