@@ -165,6 +165,36 @@ class S {
   String get resultSaved => _code == 'fr' ? 'Résultat enregistré dans l\'historique' : 'Result saved to History';
   String get serviceUnavailable => _code == 'fr' ? 'Le service est indisponible, réessayez plus tard.' : 'Service is currently unavailable, please try again later.';
 
+  // Food library
+  String get foodLibrary => _code == 'fr' ? 'Bibliothèque d’aliments' : 'Food library';
+  String get libraryExplain => _code == 'fr'
+    ? 'Enregistrez vos repas préférés pour les réutiliser en un tap.'
+    : 'Save your favorite meals and reuse them in one tap.';
+  String get saveCurrentMeal => _code == 'fr' ? 'Enregistrer le repas courant' : 'Save current meal';
+  String get openLibrary => _code == 'fr' ? 'Ouvrir la bibliothèque' : 'Open library';
+  String get saveToLibrary => _code == 'fr' ? 'Ajouter à la bibliothèque' : 'Save to library';
+  String get saveToLibraryExplain => _code == 'fr'
+    ? 'Donnez un nom à ce repas pour le retrouver facilement.'
+    : 'Give this meal a name so you can find it quickly.';
+  String savedToLibrary(String name) => _code == 'fr'
+    ? '$name ajouté à la bibliothèque'
+    : '$name saved to the library';
+  String addedFromLibrary(String name) => _code == 'fr'
+    ? '$name ajouté depuis la bibliothèque'
+    : '$name added from the library';
+  String get libraryEmpty => _code == 'fr'
+    ? 'Aucun aliment enregistré pour le moment. Ajoutez-en avec le bouton ci-dessus.'
+    : 'No saved foods yet. Add one with the button above.';
+  String deleteLibraryConfirm(String name) => _code == 'fr'
+    ? 'Supprimer $name de la bibliothèque ?'
+    : 'Remove $name from the library?';
+  String removedFromLibrary(String name) => _code == 'fr'
+    ? '$name supprimé de la bibliothèque'
+    : '$name removed from the library';
+  String get nothingToSave => _code == 'fr'
+    ? 'Aucun repas récent à enregistrer.'
+    : 'No recent meal to save.';
+
   // Barcode & quantity dialogs
   String get productNotFound => _code == 'fr' ? 'Produit non trouvé' : 'Product not found';
   String get quantityTitle => _code == 'fr' ? 'Quantité (g/ml)' : 'Quantity (g/ml)';

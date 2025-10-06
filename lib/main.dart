@@ -769,6 +769,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   bool _mealBuilderActive = false;
   final List<Map<String, dynamic>> _currentMealResults = [];
   int _idSeed = 0; // for generating stable IDs when missing
+  static const _libraryPrefsKey = 'food_library_json';
+  final List<Map<String, dynamic>> _library = [];
+  bool _libraryLoaded = false;
+  int _librarySeed = 0;
 
   // --- Robust meal identity & deletion helpers with debug logging ---
   String _assignMealId(Map<String, dynamic> meal) {
@@ -861,6 +865,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   _loadPrefs();
   _loadHistory();
   _loadQueue();
+  _loadLibrary();
   _pruneHistory();
   // Live-refresh history/queue when background service writes results
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
@@ -1287,6 +1292,431 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (mounted) setState(() { _queue..clear()..addAll(restored); });
       }
     } catch (_) {}
+  }
+
+  dynamic _cleanForStorage(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toIso8601String();
+    if (value is XFile) return value.path;
+    if (value is Uint8List) return base64Encode(value);
+    if (value is Map) {
+      final cleaned = <String, dynamic>{};
+      value.forEach((key, val) {
+        final result = _cleanForStorage(val);
+        if (result != null) {
+          cleaned[key.toString()] = result;
+        }
+      });
+      return cleaned;
+    }
+    if (value is List) {
+      return value.map(_cleanForStorage).where((element) => element != null).toList();
+    }
+    if (value is bool || value is num || value is String) return value;
+    return value.toString();
+  }
+
+  Map<String, dynamic> _cleanMapForStorage(Map<String, dynamic> map) {
+    final cleaned = <String, dynamic>{};
+    map.forEach((key, value) {
+      final v = _cleanForStorage(value);
+      if (v != null) cleaned[key] = v;
+    });
+    return cleaned;
+  }
+
+  Map<String, dynamic> _restoreLibraryItem(Map<String, dynamic> raw) {
+    final entry = <String, dynamic>{};
+    raw.forEach((key, value) {
+      entry[key] = value;
+    });
+    if (entry['structured'] is Map) {
+      entry['structured'] = Map<String, dynamic>.from(entry['structured'] as Map);
+    }
+    if (entry['children'] is List) {
+      entry['children'] = (entry['children'] as List)
+          .whereType<Map>()
+          .map((child) {
+            final map = Map<String, dynamic>.from(child);
+            if (map['structured'] is Map) {
+              map['structured'] = Map<String, dynamic>.from(map['structured'] as Map);
+            }
+            return map;
+          })
+          .toList();
+    }
+    return entry;
+  }
+
+  Future<void> _loadLibrary() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_libraryPrefsKey);
+    if (raw == null || raw.isEmpty) {
+      if (mounted) {
+        setState(() => _libraryLoaded = true);
+      } else {
+        _libraryLoaded = true;
+      }
+      return;
+    }
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is List) {
+        final items = <Map<String, dynamic>>[];
+        for (final item in decoded) {
+          if (item is Map) {
+            items.add(_restoreLibraryItem(Map<String, dynamic>.from(item)));
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _library
+              ..clear()
+              ..addAll(items);
+            _libraryLoaded = true;
+          });
+        } else {
+          _library
+            ..clear()
+            ..addAll(items);
+          _libraryLoaded = true;
+        }
+      } else if (mounted) {
+        setState(() => _libraryLoaded = true);
+      } else {
+        _libraryLoaded = true;
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _libraryLoaded = true);
+      } else {
+        _libraryLoaded = true;
+      }
+    }
+  }
+
+  Future<void> _saveLibrary() async {
+    final prefs = await SharedPreferences.getInstance();
+    final serializable = _library.map((entry) => _cleanMapForStorage(Map<String, dynamic>.from(entry))).toList();
+    await prefs.setString(_libraryPrefsKey, json.encode(serializable));
+  }
+
+  Map<String, dynamic> _libraryEntryFromMeal(Map<String, dynamic> meal, {String? customName}) {
+    final entry = <String, dynamic>{
+      'id': 'lib_${DateTime.now().microsecondsSinceEpoch}_${_librarySeed++}',
+      'name': (customName != null && customName.trim().isNotEmpty)
+          ? customName.trim()
+          : (meal['name']?.toString().trim().isNotEmpty == true
+              ? meal['name'].toString()
+              : (meal['description']?.toString().trim().isNotEmpty == true
+                  ? meal['description'].toString()
+                  : S.of(context).foodItem)),
+      'description': meal['description'],
+      'result': meal['result'],
+      'structured': meal['structured'],
+      'grams': meal['grams'],
+      'kcal': meal['kcal'],
+      'carbs': meal['carbs'],
+      'protein': meal['protein'],
+      'fat': meal['fat'],
+      'imagePath': meal['imagePath'],
+      'isGroup': meal['isGroup'] == true,
+      'createdAt': DateTime.now().toIso8601String(),
+    };
+    if (meal['isGroup'] == true && meal['children'] is List) {
+      entry['children'] = (meal['children'] as List)
+          .whereType<Map>()
+          .map((child) => _cleanMapForStorage(Map<String, dynamic>.from(child)))
+          .toList();
+    }
+    return _cleanMapForStorage(entry);
+  }
+
+  Future<void> _deleteLibraryItem(String id) async {
+    final before = _library.length;
+    setState(() {
+      _library.removeWhere((item) => item['id'] == id);
+    });
+    if (before != _library.length) {
+      await _saveLibrary();
+    }
+  }
+
+  Future<void> _addMealToLibrary(Map<String, dynamic> meal, {String? customName}) async {
+    final entry = _libraryEntryFromMeal(meal, customName: customName);
+    setState(() {
+      _library.removeWhere((item) => item['id'] == entry['id']);
+      _library.insert(0, entry);
+      _libraryLoaded = true;
+    });
+    await _saveLibrary();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(S.of(context).savedToLibrary(entry['name']?.toString() ?? S.of(context).foodItem))),
+    );
+  }
+
+  Map<String, dynamic> _mealFromLibraryEntry(Map<String, dynamic> entry) {
+    Map<String, dynamic>? structured;
+    if (entry['structured'] is Map) {
+      structured = Map<String, dynamic>.from(entry['structured'] as Map);
+    }
+    final now = DateTime.now();
+    final meal = <String, dynamic>{
+      'image': null,
+      'imagePath': entry['imagePath'],
+      'description': entry['description'],
+      'name': entry['name'],
+      'result': entry['result'],
+      'structured': structured,
+      'grams': _asInt(entry['grams']),
+      'kcal': _asInt(entry['kcal']),
+      'carbs': _asInt(entry['carbs']),
+      'protein': _asInt(entry['protein']),
+      'fat': _asInt(entry['fat']),
+      'time': now,
+      'hcWritten': false,
+    };
+    if (entry['isGroup'] == true && entry['children'] is List) {
+      final children = (entry['children'] as List)
+          .whereType<Map>()
+          .map((child) {
+            final map = Map<String, dynamic>.from(child);
+            if (map['structured'] is Map) {
+              map['structured'] = Map<String, dynamic>.from(map['structured'] as Map);
+            }
+            map['image'] = null;
+            map['time'] = now;
+            map['hcWritten'] = false;
+            map.remove('id');
+            map.remove('hcStart');
+            map.remove('hcEnd');
+            return map;
+          })
+          .toList();
+      meal['isGroup'] = true;
+      meal['children'] = children;
+      _recomputeGroupSums(meal);
+    }
+    return meal;
+  }
+
+  Future<void> _applyLibraryItem(Map<String, dynamic> entry) async {
+    final meal = _mealFromLibraryEntry(entry);
+    _assignMealId(meal);
+    setState(() {
+      if (_mealBuilderActive) {
+        _currentMealResults.add(meal);
+      } else {
+        _history.add(meal);
+        _pruneHistory();
+      }
+    });
+    if (_mealBuilderActive) {
+      await _saveMealBuilderState();
+    } else {
+      await _saveHistory();
+    }
+    if (!mounted) return;
+    if (!_mealBuilderActive) {
+      _tabController.animateTo(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showMealDetails(meal);
+        }
+      });
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(S.of(context).addedFromLibrary(entry['name']?.toString() ?? S.of(context).foodItem))),
+    );
+  }
+
+  Map<String, dynamic>? _latestMealForLibrary() {
+    if (_mealBuilderActive && _currentMealResults.isNotEmpty) {
+      return _currentMealResults.last;
+    }
+    if (_history.isNotEmpty) {
+      return _history.last;
+    }
+    return null;
+  }
+
+  Future<void> _promptSaveLatestMeal() async {
+    final s = S.of(context);
+    final source = _latestMealForLibrary();
+    if (source == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.nothingToSave)));
+      return;
+    }
+    final defaultName = source['name']?.toString().trim().isNotEmpty == true
+        ? source['name'].toString().trim()
+        : (source['description']?.toString().trim().isNotEmpty == true
+            ? source['description'].toString().trim()
+            : '');
+    final controller = TextEditingController(text: defaultName);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.saveToLibrary),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(s.saveToLibraryExplain),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(labelText: s.name),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.save)),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _addMealToLibrary(source, customName: controller.text.trim());
+    }
+  }
+
+  void _openLibrary() {
+    final s = S.of(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        return FractionallySizedBox(
+          heightFactor: 0.9,
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.bookmark_outline),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              s.foodLibrary,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(sheetCtx).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(s.libraryExplain, style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          Navigator.of(sheetCtx).pop();
+                          await _promptSaveLatestMeal();
+                        },
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(s.saveCurrentMeal),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_library.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          s.libraryEmpty,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      itemBuilder: (ctx, index) {
+                        final item = _library[index];
+                        final name = item['name']?.toString() ?? s.foodItem;
+                        final kcal = _asInt(item['kcal']);
+                        final grams = _asInt(item['grams']);
+                        final carbs = _asInt(item['carbs']);
+                        final protein = _asInt(item['protein']);
+                        final fat = _asInt(item['fat']);
+                        return Card(
+                          child: ListTile(
+                            onTap: () {
+                              Navigator.of(sheetCtx).pop();
+                              _applyLibraryItem(item);
+                            },
+                            leading: (item['imagePath'] is String && (item['imagePath'] as String).isNotEmpty)
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: _buildImageWidget(item['imagePath'], width: 48, height: 48, fit: BoxFit.cover),
+                                  )
+                                : CircleAvatar(
+                                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                    child: Icon(Icons.restaurant_menu, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                                  ),
+                            title: Text(name),
+                            subtitle: Text(
+                              [
+                                if (kcal != null) '${kcal} ${s.kcalSuffix}',
+                                if (grams != null) '${grams} g',
+                                if (carbs != null) '${carbs} ${s.carbsSuffix}',
+                                if (protein != null) '${protein} ${s.proteinSuffix}',
+                                if (fat != null) '${fat} ${s.fatSuffix}',
+                              ].where((element) => element.isNotEmpty).join(' • '),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Text(s.deleteItem),
+                                    content: Text(s.deleteLibraryConfirm(name)),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
+                                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.delete)),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await _deleteLibraryItem(item['id']?.toString() ?? '');
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(s.removedFromLibrary(name))),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemCount: _library.length,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _autoRetryPending() {
@@ -2254,6 +2684,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return null;
   }
 
+  int? _asInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.round();
+    final s = v.toString().trim();
+    if (s.isEmpty) return null;
+    final normalized = s.replaceAll(',', '.');
+    final doubleVal = double.tryParse(normalized);
+    if (doubleVal != null) return doubleVal.round();
+    return int.tryParse(s);
+  }
+
   // --- Helpers to extract grams (overall weight) from AI outputs ---
   int? _extractGrams(dynamic structured, String textSource) {
     int? fromStructured(dynamic node) {
@@ -2427,104 +2869,85 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     );
   }
 
-  // Build other actions card widget with smaller font for long text
-  Widget _buildOtherCard() {
+  Widget _buildLibrarySection() {
     final s = S.of(context);
+    final scheme = Theme.of(context).colorScheme;
+  final hasRecent = _latestMealForLibrary() != null;
+  final loading = !_libraryLoaded;
+  final previewItems = _library.take(3).toList(growable: false);
+
     return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-        ),
-        boxShadow: [
-          // Black shadow behind
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: scheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withOpacity(0.1)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.more_horiz,
-            size: 32,
-            color: Theme.of(context).colorScheme.secondary,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Other',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: Theme.of(context).colorScheme.secondary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Column(
+          Row(
             children: [
-               // Always show scan barcode button with smaller font
-               SizedBox(
-                 width: double.infinity,
-                 child: FilledButton.icon(
-                   onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : () {
-                     ScaffoldMessenger.of(context).showSnackBar(
-                       SnackBar(content: Text(S.of(context).barcodeNotAvailable)),
-                     );
-                   },
-                   icon: const Icon(Icons.qr_code_scanner, size: 16),
-                   label: Text(
-                     s.scanBarcode,
-                     style: TextStyle(
-                       fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
-                       fontWeight: FontWeight.w500,
-                     ),
-                     maxLines: 1,
-                     overflow: TextOverflow.ellipsis,
-                   ),
-                   style: FilledButton.styleFrom(
-                     backgroundColor: (canUseCamera || _isMockMode)
-                       ? Theme.of(context).colorScheme.secondary
-                       : Theme.of(context).colorScheme.secondary.withOpacity(0.6),
-                     foregroundColor: (canUseCamera || _isMockMode)
-                       ? Theme.of(context).colorScheme.onSecondary
-                       : Colors.white,
-                     padding: EdgeInsets.symmetric(
-                       vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                       horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                     ),
-                   ),
-                 ),
-               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _addManualFood,
-                  icon: const Icon(Icons.add, size: 16),
-                  label: Text(
-                    s.addManual,
-                    style: TextStyle(
-                      fontSize: MediaQuery.of(context).size.width < 360 ? 10 : 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: Theme.of(context).colorScheme.secondary),
-                    foregroundColor: Theme.of(context).colorScheme.secondary,
-                    padding: EdgeInsets.symmetric(
-                      vertical: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                      horizontal: MediaQuery.of(context).size.width < 360 ? 6 : 8,
-                    ),
-                  ),
+              Icon(Icons.menu_book_outlined, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.foodLibrary,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Text(
+            s.libraryExplain,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.icon(
+                onPressed: _openLibrary,
+                icon: const Icon(Icons.collections_bookmark_outlined),
+                label: Text(s.openLibrary),
+              ),
+              OutlinedButton.icon(
+                onPressed: hasRecent ? _promptSaveLatestMeal : null,
+                icon: const Icon(Icons.bookmark_add_outlined),
+                label: Text(s.saveCurrentMeal),
+              ),
+            ],
+          ),
+          if (loading) ...[
+            const SizedBox(height: 12),
+            const SizedBox(
+              height: 4,
+              child: LinearProgressIndicator(minHeight: 4),
+            ),
+          ] else if (_library.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final item in previewItems)
+                  ActionChip(
+                    avatar: const Icon(Icons.restart_alt, size: 16),
+                    label: Text(item['name']?.toString() ?? s.foodItem),
+                    onPressed: () => _applyLibraryItem(item),
+                  ),
+                if (_library.length > previewItems.length)
+                  ActionChip(
+                    label: Text('+${_library.length - previewItems.length}'),
+                    onPressed: _openLibrary,
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -3907,6 +4330,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
           // Queue area (always visible)
           _buildQueueArea(),
+
+          // Saved foods library actions
+          _buildLibrarySection(),
 
           // Total nutrition bar (only in meal builder mode)
           _buildTotalBar(),
