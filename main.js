@@ -1,21 +1,27 @@
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const path = require('path');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const mysql = require('mysql2/promise');
-const crypto = require('crypto');
-const {
-  GoogleGenerativeAI,
-  HarmCategory,
-  HarmBlockThreshold,
-} = require("@google/generative-ai");
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
+import dotenv from 'dotenv';
+import express from 'express';
+import multer from 'multer';
+import cors from 'cors';
+import path from 'path';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import mysql from 'mysql2/promise';
+import crypto from 'crypto';
+import { GoogleGenAI, Type } from '@google/genai';
+import { fileURLToPath } from 'url';
+import { promises as fs } from 'fs';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadDir = path.resolve(process.cwd(), 'uploads');
+
+fs.mkdir(uploadDir, { recursive: true }).catch(() => {});
+
 const apiKeys = (process.env.GEMINI_API_KEYS || '')
   .split(',')
-  .map(k => k.trim())
+  .map((k) => k.trim())
   .filter(Boolean);
 let currentApiKeyIndex = 0;
 
@@ -23,6 +29,207 @@ function getNextApiKey() {
   const apiKey = apiKeys[currentApiKeyIndex];
   currentApiKeyIndex = (currentApiKeyIndex + 1) % apiKeys.length;
   return apiKey;
+}
+
+const safetySettings = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+];
+
+const nutritionResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    "Nom de l'aliment": { type: Type.STRING },
+    'Poids (g)': { type: Type.STRING },
+    Ingredients: { type: Type.STRING },
+    Glucides: { type: Type.STRING },
+    Proteines: { type: Type.STRING },
+    Lipides: { type: Type.STRING },
+    Sauce: { type: Type.STRING },
+    Calories: { type: Type.STRING },
+  },
+  required: [
+    "Nom de l'aliment",
+    'Poids (g)',
+    'Calories',
+    'Glucides',
+    'Proteines',
+    'Lipides',
+  ],
+};
+
+const generationDefaults = {
+  temperature: 0,
+  topP: 0.95,
+  topK: 1,
+  maxOutputTokens: 8192,
+};
+
+const normalizationInstruction = [
+  'You are a JSON post-processor. You will receive a nutrition JSON.',
+  '- First, verify the language of all human-readable string values.',
+  '- If any value is not English, translate ONLY the values into English.',
+  '- Preserve the exact JSON structure and keys. Do not rename keys.',
+  '- Keep all numbers and units as-is.',
+  '- If everything is already English, return the JSON unchanged.',
+  '- Respond with JSON only (no markdown, no code fences).',
+].join('\n');
+
+async function buildInlineImagePart(uploadedFile) {
+  if (!uploadedFile) {
+    return null;
+  }
+
+  if (uploadedFile.buffer && uploadedFile.buffer.length > 0) {
+    return {
+      inlineData: {
+        data: uploadedFile.buffer.toString('base64'),
+        mimeType: uploadedFile.mimetype || 'application/octet-stream',
+      },
+    };
+  }
+
+  const candidates = [];
+  if (uploadedFile.path) {
+    candidates.push(uploadedFile.path);
+  }
+  if (uploadedFile.destination && uploadedFile.filename) {
+    candidates.push(path.join(uploadedFile.destination, uploadedFile.filename));
+  }
+  if (uploadedFile.filename) {
+    candidates.push(path.join(uploadDir, uploadedFile.filename));
+  }
+
+  let absolutePath = null;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+    try {
+      await fs.access(resolved);
+      absolutePath = resolved;
+      break;
+    } catch (_) {
+      // try next candidate
+    }
+  }
+
+  if (absolutePath) {
+    try {
+      const buffer = await fs.readFile(absolutePath);
+      try {
+        await fs.unlink(absolutePath);
+      } catch (_) {}
+      return {
+        inlineData: {
+          data: buffer.toString('base64'),
+          mimeType: uploadedFile.mimetype || 'application/octet-stream',
+        },
+      };
+    } catch (readError) {
+      try {
+        console.warn('Failed to read uploaded image file:', readError?.message ?? readError);
+      } catch (_) {}
+    }
+  }
+
+  try {
+    console.warn('Uploaded image file not found on disk for inline upload.');
+  } catch (_) {}
+  return null;
+}
+
+function extractResponseText(response) {
+  if (!response) return '';
+  if (typeof response.text === 'string') return response.text;
+  if (typeof response.outputText === 'string') return response.outputText;
+  if (typeof response.output_text === 'string') return response.output_text;
+  if (Array.isArray(response.functionCalls) && response.functionCalls.length > 0) {
+    try {
+      return JSON.stringify(response.functionCalls[0]);
+    } catch (_) {
+      return '';
+    }
+  }
+  const candidateParts = response?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(candidateParts)) {
+    for (const part of candidateParts) {
+      if (part?.jsonValue && typeof part.jsonValue === 'object') {
+        try {
+          return JSON.stringify(part.jsonValue);
+        } catch (_) {
+          // fall through to text handling
+        }
+      }
+      if (typeof part?.text === 'string' && part.text.trim()) {
+        return part.text;
+      }
+      if (part?.functionCall) {
+        try {
+          return JSON.stringify(part.functionCall);
+        } catch (_) {
+          // ignore parse issues
+        }
+      }
+    }
+  }
+  const contents = response?.contents;
+  if (Array.isArray(contents)) {
+    for (const content of contents) {
+      if (Array.isArray(content?.parts)) {
+        for (const part of content.parts) {
+          if (part?.jsonValue && typeof part.jsonValue === 'object') {
+            try {
+              return JSON.stringify(part.jsonValue);
+            } catch (_) {
+              // ignore
+            }
+          }
+          if (typeof part?.text === 'string' && part.text.trim()) {
+            return part.text;
+          }
+        }
+      }
+    }
+  }
+  return '';
+}
+
+async function englishNormalizeWithFlash(ai, originalJsonish) {
+  try {
+    const payload = typeof originalJsonish === 'string' ? originalJsonish : JSON.stringify(originalJsonish);
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Verify the following JSON is fully English. If not, translate values to English and return the JSON unchanged in structure and keys. Return JSON only.\n\nJSON:\n${payload}`,
+            },
+          ],
+        },
+      ],
+      systemInstruction: normalizationInstruction,
+      safetySettings,
+      config: {
+        ...generationDefaults,
+        responseMimeType: 'application/json',
+        responseSchema: nutritionResponseSchema,
+      },
+    });
+    const text = extractResponseText(response).trim();
+    if (!text) return null;
+    const data = JSON.parse(text);
+    if (data && typeof data === 'object') {
+      return data;
+    }
+    return null;
+  } catch (e) {
+    try {
+      console.warn('englishNormalizeWithFlash failed:', e?.message ?? e);
+    } catch (_) {}
+    return null;
+  }
 }
 
 async function handleRequestWithRetry(req, res, attempt = 0) {
@@ -34,84 +241,116 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
   }
 
   const apiKey = getNextApiKey();
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const fileManager = new GoogleAIFileManager(apiKey);
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
   const { file } = req;
-  const { message, lang } = req.body || {};
-  // Determine locale: explicit body.lang wins, then Accept-Language header, else English
-  const acceptLang = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
-  const locale = (lang && typeof lang === 'string' && lang.trim()) ? lang.trim().toLowerCase() : (acceptLang || 'en');
-  const isEnglishLocale = (
-    (typeof lang === 'string' && lang.trim().toLowerCase().startsWith('en')) ||
-    (typeof acceptLang === 'string' && acceptLang.startsWith('en'))
-  );
-  const useFlash = String(req.query.flash || '0') === '1';
+  const { message, lang } = req.body ?? {};
+    const acceptLangHeader = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
+    const locale = (typeof lang === 'string' && lang.trim())
+      ? lang.trim().toLowerCase()
+      : (acceptLangHeader || 'en');
+    const isEnglishLocale = (
+      (typeof lang === 'string' && lang.trim().toLowerCase().startsWith('en')) ||
+      (typeof acceptLangHeader === 'string' && acceptLangHeader.startsWith('en'))
+    );
+    const useFlash = String(req.query.flash || '0') === '1';
 
-    if (!file && (!message || String(message).trim().length === 0)) {
+    const rawMessage = typeof message === 'string' ? message : '';
+    const trimmedMessage = rawMessage.trim();
+    if (!file && trimmedMessage.length === 0) {
       return res.status(400).json({ ok: false, error: 'No input provided. Please include a message and/or an image.' });
     }
 
-    let fileData = null;
+    let imagePart = null;
     if (file) {
-      const uploadedFile = await uploadToGemini(file.path, file.mimetype, fileManager);
-      fileData = {
-        mimeType: uploadedFile.mimeType,
-        fileUri: uploadedFile.uri,
-      };
+      try {
+        imagePart = await buildInlineImagePart(file);
+      } catch (imageError) {
+        try {
+          console.warn('Failed to prepare uploaded image:', imageError?.message ?? imageError);
+        } catch (_) {}
+      }
     }
 
-    const history = [
+    const parts = [];
+    if (imagePart) {
+      parts.push(imagePart);
+    }
+    if (rawMessage.length > 0 || parts.length === 0) {
+      parts.push({ text: rawMessage });
+    }
+    const userPrompt = rawMessage;
+
+    const contents = [
       {
-        role: "user",
-        parts: [
-          ...(fileData ? [{ fileData }] : []),
-          { text: message },
-        ],
+        role: 'user',
+        parts,
       },
     ];
 
-    const modelName = useFlash ? "gemini-2.5-flash" : "gemini-2.5-pro";
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction: "You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight. You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess. Always choose your minimum guess, if its between like 213-287, always pick the lowest one. Reply in: " + (locale === 'fr' ? 'french' : 'english'),
-      safetySettings: safetySettings,
-    });
-    // Try the same chat path up to 10 times until we get non-empty content
-    for (let i = 0; i < 10; i++) {
-      const chatSession = model.startChat({ generationConfig, history });
-      const result = await chatSession.sendMessage(message || '');
-      const resp = result.response;
-      let text = '';
-      try { text = await resp.text(); } catch (_) { text = ''; }
-      if (!text || String(text).trim().length === 0) {
-        try {
-          const parts = (resp && resp.candidates && resp.candidates[0] && resp.candidates[0].content && resp.candidates[0].content.parts) || [];
-          for (const p of parts) {
-            if (p && typeof p.text === 'string' && p.text.trim()) { text = p.text; break; }
-            if (p && p.functionCall) { text = JSON.stringify(p.functionCall); break; }
-          }
-        } catch (_) { /* ignore */ }
-      }
-      // Log raw for each try
-      try { console.log(`[AI][${modelName}][try ${i+1}/10] raw: ${text}`); } catch (_) { }
-      // Cleanup and parse
+    const systemInstructionText = [
+      'You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight.',
+      'You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess.',
+      'Always choose your minimum guess; if you estimate a range like 213-287, always pick the lowest number.',
+      `Reply in: ${locale === 'fr' ? 'french' : 'english'}.`,
+    ].join(' ');
+
+    const systemInstruction = {
+      role: 'system',
+      parts: [{ text: systemInstructionText }],
+    };
+
+    try {
+      console.log('[AI] systemInstruction ->', systemInstructionText);
+      console.log('[AI] user prompt ->', userPrompt);
+    } catch (_) {}
+
+    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+
+    for (let i = 0; i < 10; i += 1) {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+  systemInstruction,
+        safetySettings,
+        config: {
+          ...generationDefaults,
+          responseMimeType: 'application/json',
+          responseSchema: nutritionResponseSchema,
+        },
+      });
+
+      let text = extractResponseText(response);
       if (text && text.trim().startsWith('```')) {
-        text = text.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```$/,'').trim();
+        text = text.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '');
       }
+      text = typeof text === 'string' ? text.trim() : '';
+
+      try {
+        console.log(`[AI][${modelName}][try ${i + 1}/10] raw: ${text}`);
+      } catch (_) {}
+
       let data = null;
-      if (text && text.trim()) {
-        try { data = JSON.parse(text); } catch (_) { data = null; }
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (_) {
+          data = null;
+        }
       }
-      if ((text && text.trim()) || (data && Object.keys(data).length)) {
-        let finalPayload = data ?? text;
-  // Only enforce English normalization when caller locale indicates English
-  if (isEnglishLocale) {
+
+      if ((text && text.trim()) || (data && typeof data === 'object' && Object.keys(data).length > 0)) {
+        let finalPayload = (data && typeof data === 'object') ? data : text;
+        if (isEnglishLocale) {
           try {
-            const normalized = await englishNormalizeWithFlash(genAI, finalPayload);
-            if (normalized) finalPayload = normalized;
-          } catch (_) { /* fallback to original */ }
+            const normalized = await englishNormalizeWithFlash(ai, finalPayload);
+            if (normalized) {
+              finalPayload = normalized;
+            }
+          } catch (_) {
+            // keep original payload
+          }
         }
         await logRequestIp(req);
         return res.json({ ok: true, data: finalPayload });
@@ -122,15 +361,13 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     return res.status(503).json({ ok: false, error: 'Empty response from model after retries.' });
   } catch (error) {
     console.error(`Error with API key ${apiKey}:`, error);
-    const status = (error && (error.status || (error.response && error.response.status))) || 0;
-    // If model is overloaded or internal error, try remaining keys; if exhausted, return friendly message
-    if ((status === 503 || status === 500)) {
+    const status = error?.status ?? error?.response?.status ?? 0;
+    if (status === 503 || status === 500) {
       if (attempt + 1 < apiKeys.length) {
         return handleRequestWithRetry(req, res, attempt + 1);
       }
       return res.status(503).json({ ok: false, error: 'AI is overloaded. You can retry with a faster, less precise model.' });
     }
-    // Other errors: keep rotating keys until exhausted, then return friendly message
     if (attempt + 1 < apiKeys.length) {
       return handleRequestWithRetry(req, res, attempt + 1);
     }
@@ -144,7 +381,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-// Feature flag: disable password (JWT) auth when PASSWORD_AUTH=false
 const PASSWORD_AUTH = (() => {
   const v = String(process.env.PASSWORD_AUTH ?? process.env.password_auth ?? 'true').toLowerCase();
   return !(v === 'false' || v === '0' || v === 'off' || v === 'no');
@@ -152,10 +388,8 @@ const PASSWORD_AUTH = (() => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Serve static assets (icons, etc.) from /static if needed in the future
 app.use('/static', express.static(path.join(__dirname, 'assets')));
 
-// Simple shared-secret guard; require header or bearer token
 function requireToken(req, res, next) {
   const headerToken = req.get('x-app-token');
   const bearer = req.get('authorization');
@@ -164,122 +398,10 @@ function requireToken(req, res, next) {
   if (token !== APP_TOKEN) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
-  next();
+  return next();
 }
-// Allow cross-origin requests from Flutter web/dev servers during development
+
 app.use(cors());
-const safetySettings = [
-  {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
-  },
-];
-
-const generationConfig = {
-  temperature: 0,
-  topP: 0.95,
-  topK: 1,
-  maxOutputTokens: 8192,
-  responseMimeType: "application/json",
-  responseSchema: {
-    type: "object",
-    properties: {
-      "Nom de l'aliment": {
-        type: "string"
-      },
-  "Poids (g)": {
-        type: "string"
-      },
-      Ingredients: {
-        type: "string"
-      },
-      Glucides: {
-        type: "string"
-      },
-      Proteines: {
-        type: "string"
-      },
-      Lipides: {
-        type: "string"
-      },
-      Sauce: {
-        type: "string"
-      },
-      Calories: {
-        type: "string"
-      },
-    },
-    required: [
-      "Nom de l'aliment",
-      "Poids (g)",
-      "Calories",
-      "Glucides",
-      "Proteines",
-      "Lipides",
-    ]
-  },
-};
-
-// Post-process: ensure JSON values are English using a single-pass flash call.
-// Returns a parsed object on success, or null to fallback to original.
-async function englishNormalizeWithFlash(genAI, originalJsonish) {
-  try {
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: (
-        'You are a JSON post-processor. You will receive a nutrition JSON.\n' +
-        '- First, verify the language of all human-readable string values.\n' +
-        '- If any value is not English, translate ONLY the values into English.\n' +
-        '- Preserve the exact JSON structure and keys. Do not rename keys.\n' +
-        '- Keep all numbers and units as-is.\n' +
-        '- If everything is already English, return the JSON unchanged.\n' +
-        '- Respond with JSON only (no markdown, no code fences).'
-      ),
-      safetySettings,
-    });
-    const chat = model.startChat({ generationConfig });
-    const payload = (typeof originalJsonish === 'string') ? originalJsonish : JSON.stringify(originalJsonish);
-    const msg = 'Verify the following JSON is fully English. If not, translate values to English and return the JSON unchanged in structure and keys. Return JSON only.\n\nJSON:\n' + payload;
-    const result = await chat.sendMessage(msg);
-    const resp = result && result.response;
-    let text = '';
-    try { text = await resp.text(); } catch (_) { text = ''; }
-    if (text && text.trim().startsWith('```')) {
-      text = text.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '').trim();
-    }
-    if (!text || !text.trim()) return null;
-    try {
-      const data = JSON.parse(text);
-      if (data && typeof data === 'object' && Object.keys(data).length > 0) return data;
-    } catch (_) { /* parse failed */ }
-    return null;
-  } catch (e) {
-    try { console.warn('englishNormalizeWithFlash failed:', e && e.message ? e.message : e); } catch (_) {}
-    return null;
-  }
-}
-
-/**
- * Uploads the given file to Gemini.
- *
- * See https://ai.google.dev/gemini-api/docs/prompting_with_media
- */
-async function uploadToGemini(path, mimeType, fileManager) {
-  const uploadResult = await fileManager.uploadFile(path, {
-    mimeType,
-    displayName: path,
-  });
-  const file = uploadResult.file;
-  console.log(`Uploaded file ${file.displayName} as: ${file.name}`);
-  return file;
-}
-
-// (routes moved below after auth & upload are defined)
-
 // --------------------------
 // Database bootstrap (MySQL)
 // --------------------------
@@ -381,18 +503,6 @@ function authJwt(req, res, next) {
   } catch (e) {
     return res.status(401).json({ ok: false, error: 'Invalid token' });
   }
-}
-
-// Existing app token guard retained for extra protection on model endpoints
-function requireToken(req, res, next) {
-  const headerToken = req.get('x-app-token');
-  const bearer = req.get('authorization');
-  const bearerToken = bearer && /^Bearer\s+(.+)/i.test(bearer) ? bearer.replace(/^Bearer\s+/i, '') : undefined;
-  const token = headerToken || bearerToken;
-  if (token !== APP_TOKEN) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized' });
-  }
-  next();
 }
 
 // --------------------------
@@ -677,7 +787,9 @@ if (PASSWORD_AUTH) {
   app.post('/ping', (req, res) => res.json({ ok:true, pong:true }));
 }
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  storage: multer.memoryStorage(),
+});
 const modelGuards = PASSWORD_AUTH ? [authJwt, requireToken] : [requireToken];
 app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
   try {
@@ -687,7 +799,7 @@ app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
       return res.json({ ok: true, data: { echo: message, note: 'fast-path' } });
     }
   } catch (_) {}
-  handleRequestWithRetry(req, res);
+  return handleRequestWithRetry(req, res);
 });
 
 // Admin: downloadable IP report (last 24h)
