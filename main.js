@@ -23,6 +23,10 @@ const apiKeys = (process.env.GEMINI_API_KEYS || '')
   .split(',')
   .map((k) => k.trim())
   .filter(Boolean);
+
+const useVertexArg = process.argv.includes('--vertex');
+const vertexApiKey = process.env.VERTEX_API_KEY;
+
 let currentApiKeyIndex = 0;
 
 function getNextApiKey() {
@@ -232,6 +236,135 @@ async function englishNormalizeWithFlash(ai, originalJsonish) {
   }
 }
 
+async function handleVertexRequest(req, res) {
+  if (!vertexApiKey) {
+    console.warn('Vertex mode requested but VERTEX_API_KEY not found.');
+    return handleRequestWithRetry(req, res);
+  }
+
+  // Temporarily enable Vertex mode for the SDK
+  process.env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
+  const ai = new GoogleGenAI({ apiKey: vertexApiKey });
+  // Unset immediately to prevent polluting other requests/fallbacks
+  delete process.env.GOOGLE_GENAI_USE_VERTEXAI;
+
+  try {
+    const { file } = req;
+    const { message, lang } = req.body ?? {};
+    const acceptLangHeader = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
+    const locale = (typeof lang === 'string' && lang.trim())
+      ? lang.trim().toLowerCase()
+      : (acceptLangHeader || 'en');
+    const isEnglishLocale = (
+      (typeof lang === 'string' && lang.trim().toLowerCase().startsWith('en')) ||
+      (typeof acceptLangHeader === 'string' && acceptLangHeader.startsWith('en'))
+    );
+
+    const rawMessage = typeof message === 'string' ? message : '';
+    const trimmedMessage = rawMessage.trim();
+    if (!file && trimmedMessage.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No input provided. Please include a message and/or an image.' });
+    }
+
+    let imagePart = null;
+    if (file) {
+      try {
+        imagePart = await buildInlineImagePart(file);
+      } catch (imageError) {
+        try {
+          console.warn('Vertex: Failed to prepare uploaded image:', imageError?.message ?? imageError);
+        } catch (_) { }
+      }
+    }
+
+    const parts = [];
+    if (imagePart) {
+      parts.push(imagePart);
+    }
+    if (rawMessage.length > 0 || parts.length === 0) {
+      parts.push({ text: rawMessage });
+    }
+    const userPrompt = rawMessage;
+
+    const systemInstructionText = [
+      'You cannot base yourself off typical serving sizes, only visual information and deep picture analysis of weight.',
+      'You must find the exact weight to the gram. Also remove ~10% of your estimated weight guess.',
+      'Always choose your minimum guess; if you estimate a range like 213-287, always pick the lowest number.',
+      `Reply in: ${locale === 'fr' ? 'french' : 'english'}.`,
+    ].join(' ');
+
+    const systemInstruction = {
+      role: 'system',
+      parts: [{ text: systemInstructionText }],
+    };
+
+    try {
+      console.log('[Vertex AI] systemInstruction ->', systemInstructionText);
+      console.log('[Vertex AI] user prompt ->', userPrompt);
+    } catch (_) { }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: [
+        {
+          role: 'user',
+          parts,
+        },
+      ],
+      systemInstruction,
+      safetySettings,
+      config: {
+        ...generationDefaults,
+        responseMimeType: 'application/json',
+        responseSchema: nutritionResponseSchema,
+      },
+    });
+
+    let text = extractResponseText(response);
+    if (text && text.trim().startsWith('```')) {
+      text = text.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '');
+    }
+    text = typeof text === 'string' ? text.trim() : '';
+
+    try {
+      console.log(`[Vertex AI][gemini-3-pro-preview] raw: ${text}`);
+    } catch (_) { }
+
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (_) {
+        data = null;
+      }
+    }
+
+    if ((text && text.trim()) || (data && typeof data === 'object' && Object.keys(data).length > 0)) {
+      let finalPayload = (data && typeof data === 'object') ? data : text;
+      if (isEnglishLocale) {
+        try {
+          const normalized = await englishNormalizeWithFlash(ai, finalPayload);
+          if (normalized) {
+            finalPayload = normalized;
+          }
+        } catch (_) {
+          // keep original payload
+        }
+      }
+      await logRequestIp(req);
+      return res.json({ ok: true, data: finalPayload });
+    }
+
+    throw new Error('Vertex AI returned no content.');
+
+  } catch (error) {
+    console.warn('Vertex AI failed, reverting to standard API:', error?.message ?? error);
+    // Ensure Vertex mode is off for fallback
+    if (process.env.GOOGLE_GENAI_USE_VERTEXAI) delete process.env.GOOGLE_GENAI_USE_VERTEXAI;
+    return handleRequestWithRetry(req, res);
+  }
+}
+
 async function handleRequestWithRetry(req, res, attempt = 0) {
   if (!apiKeys || apiKeys.length === 0) {
     return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
@@ -306,7 +439,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
       console.log('[AI] user prompt ->', userPrompt);
     } catch (_) { }
 
-    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-3-flash';
+    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
 
     for (let i = 0; i < 10; i += 1) {
       const response = await ai.models.generateContent({
@@ -801,6 +934,9 @@ app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
       return res.json({ ok: true, data: { echo: message, note: 'fast-path' } });
     }
   } catch (_) { }
+  if (useVertexArg) {
+    return handleVertexRequest(req, res);
+  }
   return handleRequestWithRetry(req, res);
 });
 

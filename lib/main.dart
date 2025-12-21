@@ -1,9 +1,9 @@
- import 'dart:io';
- import 'dart:typed_data';
- import 'dart:async';
- import 'dart:ui';
- import 'package:flutter/foundation.dart';
- import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:async';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:intl/intl.dart';
@@ -40,8 +40,10 @@ part 'models/off_product.dart';
 part 'l10n/translations.dart';
 
 // Notifications setup (Android): used to track background queue status
-final FlutterLocalNotificationsPlugin _notifs = FlutterLocalNotificationsPlugin();
-final StreamController<String?> notificationTapStream = StreamController<String?>.broadcast();
+final FlutterLocalNotificationsPlugin _notifs =
+    FlutterLocalNotificationsPlugin();
+final StreamController<String?> notificationTapStream =
+    StreamController<String?>.broadcast();
 String? _initialNotifPayload;
 
 Future<void> _initNotifications() async {
@@ -55,7 +57,8 @@ Future<void> _initNotifications() async {
     onDidReceiveBackgroundNotificationResponse: _onBgNotificationTap,
   );
   // Android 13+ runtime notifications permission
-  final androidPlugin = _notifs.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  final androidPlugin = _notifs.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.requestNotificationsPermission();
   // Ensure channel exists for our background queue
   const channel = AndroidNotificationChannel(
@@ -69,7 +72,11 @@ Future<void> _initNotifications() async {
 
 // Preparing/queued notification disabled per request; function removed
 
-Future<void> _notifyDone({required String jobId, required String title, required String body, String? payload}) async {
+Future<void> _notifyDone(
+    {required String jobId,
+    required String title,
+    required String body,
+    String? payload}) async {
   // Prevent accidental blank notifications
   final t = title.trim();
   final b = body.trim();
@@ -77,7 +84,8 @@ Future<void> _notifyDone({required String jobId, required String title, required
   await _notifs.cancel(jobId.hashCode);
   final details = NotificationDetails(
     android: AndroidNotificationDetails(
-      'meal_queue', 'Meal Queue',
+      'meal_queue',
+      'Meal Queue',
       channelDescription: 'Background meal analysis status',
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
@@ -85,7 +93,9 @@ Future<void> _notifyDone({required String jobId, required String title, required
       visibility: NotificationVisibility.public,
     ),
   );
-  await _notifs.show(jobId.hashCode, t.isEmpty ? null : t, b.isEmpty ? null : b, details, payload: (payload != null && payload.isEmpty) ? null : payload);
+  await _notifs.show(
+      jobId.hashCode, t.isEmpty ? null : t, b.isEmpty ? null : b, details,
+      payload: (payload != null && payload.isEmpty) ? null : payload);
 }
 
 @pragma('vm:entry-point')
@@ -105,7 +115,8 @@ class AppSettings extends ChangeNotifier {
 
   static const _prefsKey = 'app_locale'; // values: 'system', 'en', 'fr'
   static const _prefsDaltonian = 'daltonian_mode';
-  static const _prefsThemeMode = 'theme_mode'; // values: 'system', 'light', 'dark'
+  static const _prefsThemeMode =
+      'theme_mode'; // values: 'system', 'light', 'dark'
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -117,7 +128,7 @@ class AppSettings extends ChangeNotifier {
       Intl.defaultLocale = code;
     }
     _daltonian = prefs.getBool(_prefsDaltonian) ?? false;
-    
+
     // Load theme mode
     final themeModeString = prefs.getString(_prefsThemeMode) ?? 'system';
     switch (themeModeString) {
@@ -173,14 +184,17 @@ class AppSettings extends ChangeNotifier {
 }
 
 final appSettings = AppSettings();
-String get kDefaultBaseUrl => dotenv.maybeGet('APP_BASE_URL') ?? 'http://141.145.210.115:3007';
+String get kDefaultBaseUrl =>
+    dotenv.maybeGet('APP_BASE_URL') ?? 'http://141.145.210.115:3007';
 // When PASSWORD_AUTH=false in .env.client, the app skips password login
 bool get kPasswordAuthEnabled {
-  final v = dotenv.maybeGet('PASSWORD_AUTH') ?? dotenv.maybeGet('password_auth');
+  final v =
+      dotenv.maybeGet('PASSWORD_AUTH') ?? dotenv.maybeGet('password_auth');
   if (v == null) return true;
   final s = v.toLowerCase();
   return !(s == 'false' || s == '0' || s == 'off' || s == 'no');
 }
+
 class AuthState extends ChangeNotifier {
   String? _token;
   String? get token => _token;
@@ -258,7 +272,8 @@ class _NotifTapHandlerState extends State<_NotifTapHandler> {
     _sub = notificationTapStream.stream.listen(_handlePayload);
     // Handle initial payload if any
     if (_initialNotifPayload != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _handlePayload(_initialNotifPayload));
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _handlePayload(_initialNotifPayload));
       _initialNotifPayload = null;
     }
   }
@@ -276,9 +291,12 @@ class _NotifTapHandlerState extends State<_NotifTapHandler> {
       final dt = DateTime.tryParse(when);
       if (dt != null) {
         found = state._history.cast<Map<String, dynamic>?>().firstWhere(
-          (m) => m != null && state._asDateTime(m['time'])?.toIso8601String() == dt.toIso8601String(),
-          orElse: () => null,
-        );
+              (m) =>
+                  m != null &&
+                  state._asDateTime(m['time'])?.toIso8601String() ==
+                      dt.toIso8601String(),
+              orElse: () => null,
+            );
       }
     }
     if (found == null && state._history.isNotEmpty) {
@@ -313,8 +331,12 @@ class RootApp extends StatelessWidget {
     const fallbackSeed = Color(0xFF6750A4);
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-        final ColorScheme lightScheme = lightDynamic ?? ColorScheme.fromSeed(seedColor: fallbackSeed, brightness: Brightness.light);
-        final ColorScheme darkScheme = darkDynamic ?? ColorScheme.fromSeed(seedColor: fallbackSeed, brightness: Brightness.dark);
+        final ColorScheme lightScheme = lightDynamic ??
+            ColorScheme.fromSeed(
+                seedColor: fallbackSeed, brightness: Brightness.light);
+        final ColorScheme darkScheme = darkDynamic ??
+            ColorScheme.fromSeed(
+                seedColor: fallbackSeed, brightness: Brightness.dark);
 
         final ThemeData lightTheme = ThemeData(
           colorScheme: lightScheme,
@@ -328,14 +350,16 @@ class RootApp extends StatelessWidget {
           cardTheme: const CardThemeData(
             elevation: 0,
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(16))),
           ),
           inputDecorationTheme: InputDecorationTheme(
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
           filledButtonTheme: FilledButtonThemeData(
             style: FilledButton.styleFrom(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
           ),
@@ -353,14 +377,16 @@ class RootApp extends StatelessWidget {
           cardTheme: const CardThemeData(
             elevation: 0,
             clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(16))),
           ),
           inputDecorationTheme: InputDecorationTheme(
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
           filledButtonTheme: FilledButtonThemeData(
             style: FilledButton.styleFrom(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
           ),
@@ -369,17 +395,21 @@ class RootApp extends StatelessWidget {
         return AnimatedBuilder(
           animation: appSettings,
           builder: (context, _) => AnimatedTheme(
-            duration: const Duration(milliseconds: 2000), // Slow, comfortable transition
-            curve: Curves.easeInOut, // Standard ease-in-out for smooth start/end
-            data: appSettings.themeMode == ThemeMode.dark 
-                ? darkTheme 
-                : appSettings.themeMode == ThemeMode.light 
-                    ? lightTheme 
-                    : MediaQuery.of(context).platformBrightness == Brightness.dark 
-                        ? darkTheme 
+            duration: const Duration(
+                milliseconds: 2000), // Slow, comfortable transition
+            curve:
+                Curves.easeInOut, // Standard ease-in-out for smooth start/end
+            data: appSettings.themeMode == ThemeMode.dark
+                ? darkTheme
+                : appSettings.themeMode == ThemeMode.light
+                    ? lightTheme
+                    : MediaQuery.of(context).platformBrightness ==
+                            Brightness.dark
+                        ? darkTheme
                         : lightTheme,
             child: Builder(
-              builder: (context) => _NotifTapHandler(child: MaterialApp(
+              builder: (context) => _NotifTapHandler(
+                  child: MaterialApp(
                 onGenerateTitle: (ctx) => S.of(ctx).appTitle,
                 theme: lightTheme,
                 darkTheme: darkTheme,
@@ -426,8 +456,8 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-  if (!kPasswordAuthEnabled) return const MainScreen();
-  if (authState.token == null) return const LoginScreen();
+    if (!kPasswordAuthEnabled) return const MainScreen();
+    if (authState.token == null) return const LoginScreen();
     return const MainScreen();
   }
 }
@@ -447,38 +477,56 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-  final uri = Uri.parse('$kDefaultBaseUrl/auth/login');
-      final resp = await http.post(uri, headers: {
-        'Content-Type': 'application/json',
-      }, body: jsonEncode({ 'username': _u.text.trim(), 'password': _p.text }));
+      final uri = Uri.parse('$kDefaultBaseUrl/auth/login');
+      final resp = await http.post(uri,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'username': _u.text.trim(), 'password': _p.text}));
       if (resp.statusCode != 200) {
-        setState(() { _error = S.of(context).loginFailedCode(resp.statusCode); });
+        setState(() {
+          _error = S.of(context).loginFailedCode(resp.statusCode);
+        });
         return;
       }
       final jsonBody = json.decode(resp.body) as Map;
       if (jsonBody['ok'] != true) {
-  setState(() { _error = (jsonBody['error']?.toString() ?? S.of(context).loginError); });
+        setState(() {
+          _error = (jsonBody['error']?.toString() ?? S.of(context).loginError);
+        });
         return;
       }
       final token = jsonBody['token']?.toString();
       final force = jsonBody['forcePasswordReset'] == true;
       if (token == null || token.isEmpty) {
-  setState(() { _error = S.of(context).noTokenReceived; });
+        setState(() {
+          _error = S.of(context).noTokenReceived;
+        });
         return;
       }
       await authState.setToken(token);
       if (!mounted) return;
       if (force) {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const SetPasswordScreen()));
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const SetPasswordScreen()));
       } else {
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainScreen()));
       }
     } catch (e) {
-      setState(() { _error = S.of(context).networkError; });
+      setState(() {
+        _error = S.of(context).networkError;
+      });
     } finally {
-      if (mounted) setState(() { _busy = false; });
+      if (mounted)
+        setState(() {
+          _busy = false;
+        });
     }
   }
 
@@ -486,7 +534,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-  appBar: AppBar(title: Text('${s.appTitle} • ${s.login}')),
+      appBar: AppBar(title: Text('${s.appTitle} • ${s.login}')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -500,21 +548,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextFormField(
                     controller: _u,
                     decoration: InputDecoration(labelText: s.username),
-                    validator: (v) => (v==null||v.trim().isEmpty) ? s.required : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? s.required : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _p,
                     obscureText: true,
                     decoration: InputDecoration(labelText: s.password),
-                    validator: (v) => (v==null||v.isEmpty) ? s.required : null,
+                    validator: (v) =>
+                        (v == null || v.isEmpty) ? s.required : null,
                   ),
                   const SizedBox(height: 16),
-                  if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  if (_error != null)
+                    Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: _busy ? null : _login,
-                    child: _busy ? const SizedBox(width: 18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : Text(s.login),
+                    child: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(s.login),
                   ),
                   const SizedBox(height: 24),
                   Text(s.betaSignup, textAlign: TextAlign.center),
@@ -524,7 +582,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     iconSize: 28,
                     onPressed: () async {
                       final uri = Uri.parse('https://discord.gg/8bDDqbvr8K');
-                      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+                      if (!await launchUrl(uri,
+                          mode: LaunchMode.externalApplication)) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text(s.openDiscordFailed)),
@@ -558,30 +617,51 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   String? _error;
 
   Future<void> _save() async {
-  if (!_formKey.currentState!.validate()) return;
-  if (_p1.text != _p2.text) { setState((){_error=S.of(context).passwordsDoNotMatch;}); return; }
-    setState(() { _busy = true; _error = null; });
+    if (!_formKey.currentState!.validate()) return;
+    if (_p1.text != _p2.text) {
+      setState(() {
+        _error = S.of(context).passwordsDoNotMatch;
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-  final uri = Uri.parse('$kDefaultBaseUrl/auth/set-password');
-      final resp = await http.post(uri, headers: {
-        'Content-Type': 'application/json',
-        if (authState.token != null) 'Authorization': 'Bearer ${authState.token}',
-      }, body: jsonEncode({ 'newPassword': _p1.text }));
+      final uri = Uri.parse('$kDefaultBaseUrl/auth/set-password');
+      final resp = await http.post(uri,
+          headers: {
+            'Content-Type': 'application/json',
+            if (authState.token != null)
+              'Authorization': 'Bearer ${authState.token}',
+          },
+          body: jsonEncode({'newPassword': _p1.text}));
       if (resp.statusCode != 200) {
-        setState(() { _error = S.of(context).failedWithCode(resp.statusCode); });
+        setState(() {
+          _error = S.of(context).failedWithCode(resp.statusCode);
+        });
         return;
       }
       final body = json.decode(resp.body) as Map;
       if (body['ok'] != true) {
-        setState(() { _error = (body['error']?.toString() ?? S.of(context).error); });
+        setState(() {
+          _error = (body['error']?.toString() ?? S.of(context).error);
+        });
         return;
       }
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainScreen()));
+      Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainScreen()));
     } catch (e) {
-      setState(() { _error = S.of(context).networkError; });
+      setState(() {
+        _error = S.of(context).networkError;
+      });
     } finally {
-      if (mounted) setState(() { _busy = false; });
+      if (mounted)
+        setState(() {
+          _busy = false;
+        });
     }
   }
 
@@ -589,7 +669,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-  appBar: AppBar(title: Text('${s.appTitle} • ${s.setPasswordTitle}')),
+      appBar: AppBar(title: Text('${s.appTitle} • ${s.setPasswordTitle}')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -604,21 +684,31 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                     controller: _p1,
                     obscureText: true,
                     decoration: InputDecoration(labelText: s.newPassword),
-                    validator: (v) => (v==null||v.length<6) ? s.min6 : null,
+                    validator: (v) =>
+                        (v == null || v.length < 6) ? s.min6 : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _p2,
                     obscureText: true,
                     decoration: InputDecoration(labelText: s.confirmPassword),
-                    validator: (v) => (v==null||v.length<6) ? s.min6 : null,
+                    validator: (v) =>
+                        (v == null || v.length < 6) ? s.min6 : null,
                   ),
                   const SizedBox(height: 16),
-                  if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  if (_error != null)
+                    Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: _busy ? null : _save,
-                    child: _busy ? const SizedBox(width: 18,height:18,child:CircularProgressIndicator(strokeWidth:2)) : const Text('Save'),
+                    child: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Save'),
                   ),
                 ],
               ),
@@ -638,7 +728,8 @@ class MainScreen extends StatefulWidget {
 }
 
 // Helper function to create web-compatible image widgets with error handling
-Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, BoxFit? fit}) {
+Widget _buildImageWidget(dynamic imageSource,
+    {double? width, double? height, BoxFit? fit}) {
   if (kIsWeb) {
     // On web, use Image.network for XFile or Image.memory for bytes
     if (imageSource is XFile) {
@@ -700,7 +791,7 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
     } else if (imageSource is String) {
       path = imageSource;
     }
-    
+
     if (path != null) {
       // Check if file exists before trying to load it
       if (File(path).existsSync()) {
@@ -730,7 +821,7 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
       }
     }
   }
-  
+
   return Container(
     width: width,
     height: height,
@@ -740,7 +831,8 @@ Widget _buildImageWidget(dynamic imageSource, {double? width, double? height, Bo
 }
 
 // Moved _image and _controller to the class level to ensure state persistence
-class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+class _MainScreenState extends State<MainScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final List<Map<String, dynamic>> _history = [];
   final TextEditingController _controller = TextEditingController();
@@ -806,7 +898,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       for (final f in fields) {
         final va = a[f];
         final vb = b[f];
-        if (va != null && vb != null && va.toString() != vb.toString()) return false;
+        if (va != null && vb != null && va.toString() != vb.toString())
+          return false;
       }
       return true;
     }
@@ -820,13 +913,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final beforeTop = _history.length;
     _history.removeWhere((m) {
       final mid = m['id'];
-      final match = (tid != null && mid is String && mid == tid) || _matchesBySignature(m, target);
-      if (match) debugPrint('[delete] Removing top-level meal id=${mid ?? 'null'} time=${_asDateTime(m['time'])}');
+      final match = (tid != null && mid is String && mid == tid) ||
+          _matchesBySignature(m, target);
+      if (match)
+        debugPrint(
+            '[delete] Removing top-level meal id=${mid ?? 'null'} time=${_asDateTime(m['time'])}');
       return match;
     });
     final removedTop = beforeTop - _history.length;
     removed += removedTop;
-    if (removedTop > 0) debugPrint('[delete] Removed $removedTop top-level entries');
+    if (removedTop > 0)
+      debugPrint('[delete] Removed $removedTop top-level entries');
     // Remove in groups
     for (final m in _history) {
       if (m['children'] is List) {
@@ -835,8 +932,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         children.removeWhere((c) {
           if (c is! Map<String, dynamic>) return false;
           final mid = c['id'];
-          final match = (tid != null && mid is String && mid == tid) || _matchesBySignature(c, target);
-          if (match) debugPrint('[delete] Removing child meal id=${mid ?? 'null'} time=${_asDateTime(c['time'])}');
+          final match = (tid != null && mid is String && mid == tid) ||
+              _matchesBySignature(c, target);
+          if (match)
+            debugPrint(
+                '[delete] Removing child meal id=${mid ?? 'null'} time=${_asDateTime(c['time'])}');
           return match;
         });
         removed += (before - children.length);
@@ -844,6 +944,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
     return removed;
   }
+
   StreamSubscription<dynamic>? _bgDbSub;
   Timer? _refreshTimer;
   int? _lastHistMark;
@@ -853,74 +954,74 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-  _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
-  // Rebuild when switching tabs so the meal button visibility updates
-  _tabController.addListener(() {
-    if (mounted) setState(() {});
-  });
-  // Also rebuild during swipe animations for predictive-like reveal
-  _tabController.animation?.addListener(() {
-    if (mounted) setState(() {});
-  });
-  _loadPrefs();
-  _loadHistory();
-  _loadQueue();
-  _loadLibrary();
-  _pruneHistory();
-  // Live-refresh history/queue when background service writes results
-  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-    _bgDbSub = FlutterBackgroundService().on('db_updated').listen((event) async {
-      await _reloadFromDiskWithMealBuilderSupport();
-      if (!mounted) return;
-      _addNotification(S.of(context).resultSaved);
-      
-      // Show popup for the most recent result when background queue completes
-      // This ensures popups work in queue mode just like in direct processing
-      if (!_mealBuilderActive && _history.isNotEmpty) {
-        final mostRecent = _history.last;
-        // Use addPostFrameCallback for Android compatibility like in direct processing
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _showMealDetails(mostRecent);
-          }
-        });
-      }
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
+    // Rebuild when switching tabs so the meal button visibility updates
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
     });
-    // Periodic fallback: watch SharedPreferences update markers to catch missed events
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        // Ensure we see updates written by the background service process
-        await prefs.reload();
-        final histMark = prefs.getInt('history_updated_at') ?? 0;
-        final queueMark = prefs.getInt('queue_updated_at') ?? 0;
-        // store last seen in State (local variables)
-        _lastHistMark ??= histMark;
-        _lastQueueMark ??= queueMark;
-        if (histMark != _lastHistMark || queueMark != _lastQueueMark) {
-          _lastHistMark = histMark;
-          _lastQueueMark = queueMark;
-          await _reloadFromDiskWithMealBuilderSupport();
-        }
-      } catch (_) {}
+    // Also rebuild during swipe animations for predictive-like reveal
+    _tabController.animation?.addListener(() {
+      if (mounted) setState(() {});
     });
-  }
-  // Proactively check Health Connect status on supported platforms
-  if (!kIsWeb && Platform.isAndroid) {
-    // fire and forget; UI will update when done
-    // ignore: discarded_futures
-    _checkHealthStatus();
-  }
-  // Try to prefetch burned energy for today (no-op on unsupported platforms)
-  // ignore: discarded_futures
-  _loadTodayBurned();
-  // Fetch announcement after first frame so context is ready
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    // ignore: discarded_futures
-    _checkAnnouncement();
-  });
-  }
+    _loadPrefs();
+    _loadHistory();
+    _loadQueue();
+    _loadLibrary();
+    _pruneHistory();
+    // Live-refresh history/queue when background service writes results
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      _bgDbSub =
+          FlutterBackgroundService().on('db_updated').listen((event) async {
+        await _reloadFromDiskWithMealBuilderSupport();
+        if (!mounted) return;
+        _addNotification(S.of(context).resultSaved);
 
+        // Show popup for the most recent result when background queue completes
+        // This ensures popups work in queue mode just like in direct processing
+        if (!_mealBuilderActive && _history.isNotEmpty) {
+          final mostRecent = _history.last;
+          // Use addPostFrameCallback for Android compatibility like in direct processing
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _showMealDetails(mostRecent);
+            }
+          });
+        }
+      });
+      // Periodic fallback: watch SharedPreferences update markers to catch missed events
+      _refreshTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          // Ensure we see updates written by the background service process
+          await prefs.reload();
+          final histMark = prefs.getInt('history_updated_at') ?? 0;
+          final queueMark = prefs.getInt('queue_updated_at') ?? 0;
+          // store last seen in State (local variables)
+          _lastHistMark ??= histMark;
+          _lastQueueMark ??= queueMark;
+          if (histMark != _lastHistMark || queueMark != _lastQueueMark) {
+            _lastHistMark = histMark;
+            _lastQueueMark = queueMark;
+            await _reloadFromDiskWithMealBuilderSupport();
+          }
+        } catch (_) {}
+      });
+    }
+    // Proactively check Health Connect status on supported platforms
+    if (!kIsWeb && Platform.isAndroid) {
+      // fire and forget; UI will update when done
+      // ignore: discarded_futures
+      _checkHealthStatus();
+    }
+    // Try to prefetch burned energy for today (no-op on unsupported platforms)
+    // ignore: discarded_futures
+    _loadTodayBurned();
+    // Fetch announcement after first frame so context is ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ignore: discarded_futures
+      _checkAnnouncement();
+    });
+  }
 
   @override
   void dispose() {
@@ -951,11 +1052,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Force-reload queue and history from SharedPreferences
   Future<void> _reloadFromDisk() async {
     try {
-  final prefs = await SharedPreferences.getInstance();
-  // Pull latest values written by other isolates/processes
-  await prefs.reload();
-  await _loadQueue();
-  await _loadHistory();
+      final prefs = await SharedPreferences.getInstance();
+      // Pull latest values written by other isolates/processes
+      await prefs.reload();
+      await _loadQueue();
+      await _loadHistory();
     } catch (_) {
       // ignore
     }
@@ -969,14 +1070,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       // Pull latest values written by other isolates/processes
       await prefs.reload();
       await _loadQueue();
-      
+
       // Check if meal builder is active
       final mealBuilderActive = prefs.getBool('meal_builder_active') ?? false;
       if (mealBuilderActive) {
         // Load current meal results
         await _loadCurrentMealResults();
       }
-      
+
       // Load history normally
       await _loadHistory();
     } catch (_) {
@@ -990,8 +1091,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('disable_announcements_globally') == true) return;
     try {
-      final localeCode = (S.of(context).locale.languageCode == 'fr') ? 'fr' : 'en';
-    final uri = Uri.parse('${kDefaultBaseUrl}/announcement?lang=$localeCode');
+      final localeCode =
+          (S.of(context).locale.languageCode == 'fr') ? 'fr' : 'en';
+      final uri = Uri.parse('${kDefaultBaseUrl}/announcement?lang=$localeCode');
       final res = await http.get(uri, headers: {
         'Accept-Language': localeCode,
       });
@@ -1000,8 +1102,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (map is Map && map['ok'] == true) {
           final md = (map['markdown']?.toString() ?? '').trim();
           final id = map['id']?.toString();
-          final hiddenId = prefs.getString('hidden_announcement_id_$localeCode')
-              ?? prefs.getString('hidden_announcement_id'); // legacy fallback
+          final hiddenId =
+              prefs.getString('hidden_announcement_id_$localeCode') ??
+                  prefs.getString('hidden_announcement_id'); // legacy fallback
           if (md.isNotEmpty && (id == null || id != hiddenId) && mounted) {
             await _showAnnouncementDialog(md, id: id, localeCode: localeCode);
           }
@@ -1012,7 +1115,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _showAnnouncementDialog(String md, {String? id, String? localeCode}) async {
+  Future<void> _showAnnouncementDialog(String md,
+      {String? id, String? localeCode}) async {
     final s = S.of(context);
     bool hideForever = false;
     await showDialog(
@@ -1020,7 +1124,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       barrierDismissible: true,
       builder: (ctx) {
         final scrollCtrl = ScrollController();
-        final maxHeight = MediaQuery.of(ctx).size.height * 0.6; // responsive height for high-DPI
+        final maxHeight = MediaQuery.of(ctx).size.height *
+            0.6; // responsive height for high-DPI
         final dialogWidth = MediaQuery.of(ctx).size.width.clamp(320.0, 520.0);
         return AlertDialog(
           title: Text(s.info),
@@ -1046,7 +1151,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         onTapLink: (text, href, title) async {
                           if (href == null) return;
                           try {
-                            await launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
+                            await launchUrl(Uri.parse(href),
+                                mode: LaunchMode.externalApplication);
                           } catch (_) {}
                         },
                       ),
@@ -1077,8 +1183,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (hideForever) {
       final prefs = await SharedPreferences.getInstance();
       if (id != null && id.isNotEmpty) {
-  final key = 'hidden_announcement_id_${localeCode ?? S.of(context).locale.languageCode}';
-  await prefs.setString(key, id);
+        final key =
+            'hidden_announcement_id_${localeCode ?? S.of(context).locale.languageCode}';
+        await prefs.setString(key, id);
       } else {
         await prefs.setBool('hide_announcement_forever', true);
       }
@@ -1089,10 +1196,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _dailyLimit = prefs.getInt('daily_limit_kcal') ?? 2000;
-  _serverHostOverride = prefs.getString('server_host');
-  _announcementsDisabled = prefs.getBool('disable_announcements_globally') ?? false;
-  // Default: disabled everywhere unless user enabled previously
-  _queueMode = prefs.getBool('queue_mode_enabled') ?? false;
+      _serverHostOverride = prefs.getString('server_host');
+      _announcementsDisabled =
+          prefs.getBool('disable_announcements_globally') ?? false;
+      // Default: disabled everywhere unless user enabled previously
+      _queueMode = prefs.getBool('queue_mode_enabled') ?? false;
     });
   }
 
@@ -1114,11 +1222,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             }
             if (m['hcStart'] is String) {
               final t = DateTime.tryParse(m['hcStart']);
-              if (t != null) m['hcStart'] = t; else m.remove('hcStart');
+              if (t != null)
+                m['hcStart'] = t;
+              else
+                m.remove('hcStart');
             }
             if (m['hcEnd'] is String) {
               final t = DateTime.tryParse(m['hcEnd']);
-              if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
+              if (t != null)
+                m['hcEnd'] = t;
+              else
+                m.remove('hcEnd');
             }
             // Groups: normalize children
             if (m['children'] is List) {
@@ -1132,11 +1246,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   }
                   if (cm['hcStart'] is String) {
                     final t = DateTime.tryParse(cm['hcStart']);
-                    if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                    if (t != null)
+                      cm['hcStart'] = t;
+                    else
+                      cm.remove('hcStart');
                   }
                   if (cm['hcEnd'] is String) {
                     final t = DateTime.tryParse(cm['hcEnd']);
-                    if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                    if (t != null)
+                      cm['hcEnd'] = t;
+                    else
+                      cm.remove('hcEnd');
                   }
                   kids.add(cm);
                 }
@@ -1178,11 +1298,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             }
             if (m['hcStart'] is String) {
               final t = DateTime.tryParse(m['hcStart']);
-              if (t != null) m['hcStart'] = t; else m.remove('hcStart');
+              if (t != null)
+                m['hcStart'] = t;
+              else
+                m.remove('hcStart');
             }
             if (m['hcEnd'] is String) {
               final t = DateTime.tryParse(m['hcEnd']);
-              if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
+              if (t != null)
+                m['hcEnd'] = t;
+              else
+                m.remove('hcEnd');
             }
             // Groups: normalize children
             if (m['children'] is List) {
@@ -1196,11 +1322,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   }
                   if (cm['hcStart'] is String) {
                     final t = DateTime.tryParse(cm['hcStart']);
-                    if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                    if (t != null)
+                      cm['hcStart'] = t;
+                    else
+                      cm.remove('hcStart');
                   }
                   if (cm['hcEnd'] is String) {
                     final t = DateTime.tryParse(cm['hcEnd']);
-                    if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                    if (t != null)
+                      cm['hcEnd'] = t;
+                    else
+                      cm.remove('hcEnd');
                   }
                   kids.add(cm);
                 }
@@ -1223,30 +1355,41 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _saveHistory() async {
     final prefs = await SharedPreferences.getInstance();
-  debugPrint('[history] saving ${_history.length} items');
+    debugPrint('[history] saving ${_history.length} items');
     Map<String, dynamic> toJson(Map<String, dynamic> x) {
       return {
         'isGroup': x['isGroup'] == true,
-        'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
+        'imagePath': (x['imagePath'] as String?) ??
+            (x['image'] is XFile ? (x['image'] as XFile).path : null),
         'description': x['description'],
         'name': x['name'],
         'result': x['result'],
         'structured': x['structured'],
-  'grams': x['grams'],
+        'grams': x['grams'],
         'kcal': x['kcal'],
         'carbs': x['carbs'],
         'protein': x['protein'],
         'fat': x['fat'],
-        'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
-        'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
-        'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
+        'time': (x['time'] is DateTime)
+            ? (x['time'] as DateTime).toIso8601String()
+            : x['time'],
+        'hcStart': (x['hcStart'] is DateTime)
+            ? (x['hcStart'] as DateTime).toIso8601String()
+            : x['hcStart'],
+        'hcEnd': (x['hcEnd'] is DateTime)
+            ? (x['hcEnd'] as DateTime).toIso8601String()
+            : x['hcEnd'],
         'hcWritten': x['hcWritten'] == true,
-        if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
+        if (x['children'] is List)
+          'children': (x['children'] as List)
+              .map((c) => toJson(Map<String, dynamic>.from(c)))
+              .toList(),
       };
     }
+
     final serializable = _history.map((m) => toJson(m)).toList();
-  await prefs.setString('history_json', json.encode(serializable));
-  debugPrint('[history] saved');
+    await prefs.setString('history_json', json.encode(serializable));
+    debugPrint('[history] saved');
   }
 
   // Queue & notifications UI
@@ -1289,7 +1432,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             restored.add(m);
           }
         }
-        if (mounted) setState(() { _queue..clear()..addAll(restored); });
+        if (mounted)
+          setState(() {
+            _queue
+              ..clear()
+              ..addAll(restored);
+          });
       }
     } catch (_) {}
   }
@@ -1310,7 +1458,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       return cleaned;
     }
     if (value is List) {
-      return value.map(_cleanForStorage).where((element) => element != null).toList();
+      return value
+          .map(_cleanForStorage)
+          .where((element) => element != null)
+          .toList();
     }
     if (value is bool || value is num || value is String) return value;
     return value.toString();
@@ -1331,19 +1482,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       entry[key] = value;
     });
     if (entry['structured'] is Map) {
-      entry['structured'] = Map<String, dynamic>.from(entry['structured'] as Map);
+      entry['structured'] =
+          Map<String, dynamic>.from(entry['structured'] as Map);
     }
     if (entry['children'] is List) {
-      entry['children'] = (entry['children'] as List)
-          .whereType<Map>()
-          .map((child) {
-            final map = Map<String, dynamic>.from(child);
-            if (map['structured'] is Map) {
-              map['structured'] = Map<String, dynamic>.from(map['structured'] as Map);
-            }
-            return map;
-          })
-          .toList();
+      entry['children'] =
+          (entry['children'] as List).whereType<Map>().map((child) {
+        final map = Map<String, dynamic>.from(child);
+        if (map['structured'] is Map) {
+          map['structured'] =
+              Map<String, dynamic>.from(map['structured'] as Map);
+        }
+        return map;
+      }).toList();
     }
     return entry;
   }
@@ -1397,11 +1548,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _saveLibrary() async {
     final prefs = await SharedPreferences.getInstance();
-    final serializable = _library.map((entry) => _cleanMapForStorage(Map<String, dynamic>.from(entry))).toList();
+    final serializable = _library
+        .map((entry) => _cleanMapForStorage(Map<String, dynamic>.from(entry)))
+        .toList();
     await prefs.setString(_libraryPrefsKey, json.encode(serializable));
   }
 
-  Map<String, dynamic> _libraryEntryFromMeal(Map<String, dynamic> meal, {String? customName}) {
+  Map<String, dynamic> _libraryEntryFromMeal(Map<String, dynamic> meal,
+      {String? customName}) {
     final entry = <String, dynamic>{
       'id': 'lib_${DateTime.now().microsecondsSinceEpoch}_${_librarySeed++}',
       'name': (customName != null && customName.trim().isNotEmpty)
@@ -1442,7 +1596,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _addMealToLibrary(Map<String, dynamic> meal, {String? customName}) async {
+  Future<void> _addMealToLibrary(Map<String, dynamic> meal,
+      {String? customName}) async {
     final entry = _libraryEntryFromMeal(meal, customName: customName);
     setState(() {
       _library.removeWhere((item) => item['id'] == entry['id']);
@@ -1452,7 +1607,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await _saveLibrary();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(S.of(context).savedToLibrary(entry['name']?.toString() ?? S.of(context).foodItem))),
+      SnackBar(
+          content: Text(S.of(context).savedToLibrary(
+              entry['name']?.toString() ?? S.of(context).foodItem))),
     );
   }
 
@@ -1478,22 +1635,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'hcWritten': false,
     };
     if (entry['isGroup'] == true && entry['children'] is List) {
-      final children = (entry['children'] as List)
-          .whereType<Map>()
-          .map((child) {
-            final map = Map<String, dynamic>.from(child);
-            if (map['structured'] is Map) {
-              map['structured'] = Map<String, dynamic>.from(map['structured'] as Map);
-            }
-            map['image'] = null;
-            map['time'] = now;
-            map['hcWritten'] = false;
-            map.remove('id');
-            map.remove('hcStart');
-            map.remove('hcEnd');
-            return map;
-          })
-          .toList();
+      final children =
+          (entry['children'] as List).whereType<Map>().map((child) {
+        final map = Map<String, dynamic>.from(child);
+        if (map['structured'] is Map) {
+          map['structured'] =
+              Map<String, dynamic>.from(map['structured'] as Map);
+        }
+        map['image'] = null;
+        map['time'] = now;
+        map['hcWritten'] = false;
+        map.remove('id');
+        map.remove('hcStart');
+        map.remove('hcEnd');
+        return map;
+      }).toList();
       meal['isGroup'] = true;
       meal['children'] = children;
       _recomputeGroupSums(meal);
@@ -1527,7 +1683,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       });
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(S.of(context).addedFromLibrary(entry['name']?.toString() ?? S.of(context).foodItem))),
+      SnackBar(
+          content: Text(S.of(context).addedFromLibrary(
+              entry['name']?.toString() ?? S.of(context).foodItem))),
     );
   }
 
@@ -1541,12 +1699,109 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return null;
   }
 
+  Future<void> _addCustomFood() async {
+    final s = S.of(context);
+    final nameController = TextEditingController();
+    final kcalController = TextEditingController();
+    final carbsController = TextEditingController();
+    final proteinController = TextEditingController();
+    final fatController = TextEditingController();
+    final gramsController = TextEditingController();
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(s.addCustomFood),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(labelText: s.name),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                      child: TextField(
+                    controller: kcalController,
+                    decoration: InputDecoration(labelText: s.kcalLabel),
+                    keyboardType: TextInputType.number,
+                  )),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: TextField(
+                    controller: gramsController,
+                    decoration: InputDecoration(labelText: s.weightLabel),
+                    keyboardType: TextInputType.number,
+                  )),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                      child: TextField(
+                    controller: carbsController,
+                    decoration: InputDecoration(labelText: s.carbsLabel),
+                    keyboardType: TextInputType.number,
+                  )),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: TextField(
+                    controller: proteinController,
+                    decoration: InputDecoration(labelText: s.proteinLabel),
+                    keyboardType: TextInputType.number,
+                  )),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: TextField(
+                    controller: fatController,
+                    decoration: InputDecoration(labelText: s.fatLabel),
+                    keyboardType: TextInputType.number,
+                  )),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(s.cancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (nameController.text.trim().isEmpty) return;
+              Navigator.pop(ctx, {
+                'name': nameController.text.trim(),
+                'kcal': int.tryParse(kcalController.text) ?? 0,
+                'carbs': int.tryParse(carbsController.text) ?? 0,
+                'protein': int.tryParse(proteinController.text) ?? 0,
+                'fat': int.tryParse(fatController.text) ?? 0,
+                'grams': int.tryParse(gramsController.text),
+              });
+            },
+            child: Text(s.save),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await _addMealToLibrary(result);
+    }
+  }
+
   Future<void> _promptSaveLatestMeal() async {
     final s = S.of(context);
     final source = _latestMealForLibrary();
     if (source == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.nothingToSave)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(s.nothingToSave)));
       return;
     }
     final defaultName = source['name']?.toString().trim().isNotEmpty == true
@@ -1572,8 +1827,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.save)),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(s.cancel)),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true), child: Text(s.save)),
         ],
       ),
     );
@@ -1596,7 +1854,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1617,15 +1876,30 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(s.libraryExplain, style: Theme.of(context).textTheme.bodySmall),
+                      Text(s.libraryExplain,
+                          style: Theme.of(context).textTheme.bodySmall),
                       const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          Navigator.of(sheetCtx).pop();
-                          await _promptSaveLatestMeal();
-                        },
-                        icon: const Icon(Icons.save_outlined),
-                        label: Text(s.saveCurrentMeal),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () async {
+                              Navigator.of(sheetCtx).pop();
+                              await _promptSaveLatestMeal();
+                            },
+                            icon: const Icon(Icons.save_outlined),
+                            label: Text(s.saveCurrentMeal),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(sheetCtx).pop();
+                              _addCustomFood();
+                            },
+                            icon: const Icon(Icons.add),
+                            label: Text(s.addCustomFood),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1661,14 +1935,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               Navigator.of(sheetCtx).pop();
                               _applyLibraryItem(item);
                             },
-                            leading: (item['imagePath'] is String && (item['imagePath'] as String).isNotEmpty)
+                            leading: (item['imagePath'] is String &&
+                                    (item['imagePath'] as String).isNotEmpty)
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: _buildImageWidget(item['imagePath'], width: 48, height: 48, fit: BoxFit.cover),
+                                    child: _buildImageWidget(item['imagePath'],
+                                        width: 48,
+                                        height: 48,
+                                        fit: BoxFit.cover),
                                   )
                                 : CircleAvatar(
-                                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                                    child: Icon(Icons.restaurant_menu, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                                    backgroundColor: Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer,
+                                    child: Icon(Icons.restaurant_menu,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onPrimaryContainer),
                                   ),
                             title: Text(name),
                             subtitle: Text(
@@ -1676,9 +1959,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                 if (kcal != null) '${kcal} ${s.kcalSuffix}',
                                 if (grams != null) '${grams} g',
                                 if (carbs != null) '${carbs} ${s.carbsSuffix}',
-                                if (protein != null) '${protein} ${s.proteinSuffix}',
+                                if (protein != null)
+                                  '${protein} ${s.proteinSuffix}',
                                 if (fat != null) '${fat} ${s.fatSuffix}',
-                              ].where((element) => element.isNotEmpty).join(' • '),
+                              ]
+                                  .where((element) => element.isNotEmpty)
+                                  .join(' • '),
                             ),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete_outline),
@@ -1689,16 +1975,25 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                     title: Text(s.deleteItem),
                                     content: Text(s.deleteLibraryConfirm(name)),
                                     actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
-                                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.delete)),
+                                      TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: Text(s.cancel)),
+                                      FilledButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: Text(s.delete)),
                                     ],
                                   ),
                                 );
                                 if (confirm == true) {
-                                  await _deleteLibraryItem(item['id']?.toString() ?? '');
+                                  await _deleteLibraryItem(
+                                      item['id']?.toString() ?? '');
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(s.removedFromLibrary(name))),
+                                      SnackBar(
+                                          content:
+                                              Text(s.removedFromLibrary(name))),
                                     );
                                   }
                                 }
@@ -1720,7 +2015,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   void _autoRetryPending() {
-    final pending = _queue.where((j) => (j['status'] != 'in_progress')).toList(growable: false);
+    final pending = _queue
+        .where((j) => (j['status'] != 'in_progress'))
+        .toList(growable: false);
     for (final j in pending) {
       // ignore: discarded_futures
       _retryJob(j);
@@ -1736,7 +2033,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       j['status'] = 'in_progress';
     });
     await _saveQueue();
-  // Preparing upload notification disabled per request
+    // Preparing upload notification disabled per request
     try {
       bg.startBackgroundUpload({
         'id': id,
@@ -1749,7 +2046,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       });
     } catch (_) {
       // Fallback in case service cannot start
-      await _sendMessageCore(image: (imgPath != null && imgPath.isNotEmpty) ? XFile(imgPath) : null, text: text, useFlash: false, jobId: id);
+      await _sendMessageCore(
+          image:
+              (imgPath != null && imgPath.isNotEmpty) ? XFile(imgPath) : null,
+          text: text,
+          useFlash: false,
+          jobId: id);
     }
   }
 
@@ -1773,40 +2075,52 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(S.of(context).backgroundQueue, style: Theme.of(context).textTheme.titleLarge),
+                Text(S.of(context).backgroundQueue,
+                    style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
                 if (_queue.isEmpty) Text(S.of(context).noPendingJobs),
                 if (_queue.isNotEmpty)
                   ..._queue.map((j) {
-                    final created = j['createdAt'] as DateTime? ?? DateTime.now();
+                    final created =
+                        j['createdAt'] as DateTime? ?? DateTime.now();
                     final img = j['imagePath'] as String?;
                     final desc = j['description'] as String?;
-                            final status = j['status']?.toString() ?? 'pending';
-                            final statusLabel = status == 'error' ? S.of(context).statusError : S.of(context).statusPending;
+                    final status = j['status']?.toString() ?? 'pending';
+                    final statusLabel = status == 'error'
+                        ? S.of(context).statusError
+                        : S.of(context).statusPending;
                     return ListTile(
                       leading: img != null && img.isNotEmpty
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: _buildImageWidget(img, width: 40, height: 40, fit: BoxFit.cover),
+                              child: _buildImageWidget(img,
+                                  width: 40, height: 40, fit: BoxFit.cover),
                             )
                           : const Icon(Icons.image_not_supported),
-                              title: Text(desc?.isNotEmpty == true ? desc! : S.of(context).noDescription),
-                              subtitle: Text('#${j['id']} • ${_formatTimeShort(created)} • $statusLabel'),
-                              trailing: Wrap(spacing: 0, children: [
-                                IconButton(
-                                  tooltip: S.of(context).refreshBurned,
-                                  icon: const Icon(Icons.refresh),
-                                  onPressed: status == 'in_progress' ? null : () => _retryJob(j),
-                                ),
-                                IconButton(
-                                  tooltip: S.of(context).remove,
-                                  icon: const Icon(Icons.close),
-                                  onPressed: () async {
-                                    setState(() { _queue.remove(j); });
-                                    await _saveQueue();
-                                  },
-                                ),
-                              ]),
+                      title: Text(desc?.isNotEmpty == true
+                          ? desc!
+                          : S.of(context).noDescription),
+                      subtitle: Text(
+                          '#${j['id']} • ${_formatTimeShort(created)} • $statusLabel'),
+                      trailing: Wrap(spacing: 0, children: [
+                        IconButton(
+                          tooltip: S.of(context).refreshBurned,
+                          icon: const Icon(Icons.refresh),
+                          onPressed: status == 'in_progress'
+                              ? null
+                              : () => _retryJob(j),
+                        ),
+                        IconButton(
+                          tooltip: S.of(context).remove,
+                          icon: const Icon(Icons.close),
+                          onPressed: () async {
+                            setState(() {
+                              _queue.remove(j);
+                            });
+                            await _saveQueue();
+                          },
+                        ),
+                      ]),
                     );
                   }),
                 if (_queue.isNotEmpty)
@@ -1819,9 +2133,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     ),
                   ),
                 const Divider(),
-                Text(S.of(context).notifications, style: Theme.of(context).textTheme.titleMedium),
+                Text(S.of(context).notifications,
+                    style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                if (_notifications.isEmpty) Text(S.of(context).noNotificationsYet),
+                if (_notifications.isEmpty)
+                  Text(S.of(context).noNotificationsYet),
                 if (_notifications.isNotEmpty)
                   SizedBox(
                     height: 200,
@@ -1856,8 +2172,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     await prefs.setInt('daily_limit_kcal', _dailyLimit);
   }
 
-  
-
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
@@ -1871,9 +2185,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _captureImage() async {
     // Camera not supported on Linux/Windows/macOS via image_picker.
-    if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    if (!kIsWeb &&
+        (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
       ScaffoldMessenger.of(context).showSnackBar(
-  SnackBar(content: Text(S.of(context).cameraNotSupported)),
+        SnackBar(content: Text(S.of(context).cameraNotSupported)),
       );
       return;
     }
@@ -1896,7 +2211,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   // _sendMessage removed in favor of _sendOrQueue()
 
-  String _newJobId() => 'job_${DateTime.now().microsecondsSinceEpoch}_${DateTime.now().millisecondsSinceEpoch % 10000}';
+  String _newJobId() =>
+      'job_${DateTime.now().microsecondsSinceEpoch}_${DateTime.now().millisecondsSinceEpoch % 10000}';
 
   Future<void> _sendOrQueue() async {
     final capturedImage = _image;
@@ -1915,7 +2231,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         try {
           final dir = await getApplicationDocumentsDirectory();
           final ext = _extensionSafe(capturedImage.path);
-          final dest = File('${dir.path}/meal_${DateTime.now().millisecondsSinceEpoch}$ext');
+          final dest = File(
+              '${dir.path}/meal_${DateTime.now().millisecondsSinceEpoch}$ext');
           await dest.writeAsBytes(await capturedImage.readAsBytes());
           persistedPath = dest.path;
         } catch (_) {}
@@ -1926,20 +2243,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'imagePath': persistedPath ?? capturedImage?.path,
           'description': capturedText,
           'createdAt': DateTime.now(),
-      'status': 'pending',
+          'status': 'pending',
         });
         _image = null;
         _controller.clear();
       });
-    // Persist queue to survive app background/kill
-    await _saveQueue();
-  // Preparing upload notification disabled per request
+      // Persist queue to survive app background/kill
+      await _saveQueue();
+      // Preparing upload notification disabled per request
       // Start foreground service to process in background
       try {
         // Mark status in-progress
         final idx = _queue.indexWhere((e) => e['id'] == jobId);
         if (idx >= 0) {
-          setState(() { _queue[idx]['status'] = 'in_progress'; });
+          setState(() {
+            _queue[idx]['status'] = 'in_progress';
+          });
           await _saveQueue();
         }
         bg.startBackgroundUpload({
@@ -1954,10 +2273,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       } catch (_) {
         // Fallback to in-app processing if service fails to start
         // ignore: discarded_futures
-        _sendMessageCore(image: persistedPath != null ? XFile(persistedPath) : capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+        _sendMessageCore(
+            image: persistedPath != null ? XFile(persistedPath) : capturedImage,
+            text: capturedText,
+            useFlash: false,
+            jobId: jobId);
       }
-  _addNotification(S.of(context).queuedRequest(jobId));
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+      _addNotification(S.of(context).queuedRequest(jobId));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
     } else if (_queueMode && kIsWeb) {
       // Special handling for web + queue mode: simulate the 5-second delay in foreground (no background service)
       final jobId = _newJobId();
@@ -1974,17 +2298,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       });
       await _saveQueue();
       _addNotification(S.of(context).queuedRequest(jobId));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
-      
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).queuedWorking)));
+
       // Wait 5 seconds then process (with mock data if in mock mode)
       Future.delayed(const Duration(seconds: 5), () async {
         if (!mounted) return;
-        await _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false, jobId: jobId);
+        await _sendMessageCore(
+            image: capturedImage,
+            text: capturedText,
+            useFlash: false,
+            jobId: jobId);
       });
     } else {
       setState(() => _loading = true);
       try {
-        await _sendMessageCore(image: capturedImage, text: capturedText, useFlash: false);
+        await _sendMessageCore(
+            image: capturedImage, text: capturedText, useFlash: false);
       } finally {
         if (mounted) setState(() => _loading = false);
       }
@@ -2078,38 +2408,52 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'Mock': 'This is mock data for UI testing'
     };
 
-    return {
-      'ok': true,
-      'data': mockData
-    };
+    return {'ok': true, 'data': mockData};
   }
 
-  Future<void> _sendMessageCore({required XFile? image, required String text, required bool useFlash, String? jobId}) async {
+  Future<void> _sendMessageCore(
+      {required XFile? image,
+      required String text,
+      required bool useFlash,
+      String? jobId}) async {
     // Check if we're in mock mode and return fake data immediately
     if (_isMockMode) {
-      await Future.delayed(const Duration(milliseconds: 200)); // Small delay to simulate network
+      await Future.delayed(
+          const Duration(milliseconds: 200)); // Small delay to simulate network
       final mockResponse = _generateMockResponse(text, image);
       final responseBody = json.encode(mockResponse);
-      
+
       // Process mock response using same logic as real API response
       final decoded = json.decode(responseBody);
       final structured = Map<String, dynamic>.from(decoded['data'] as Map);
       final localizedStructured = _localizedStructured(structured);
-      
+
       // Extract nutrition values from mock data
-      final kcal = int.tryParse(structured['Calories']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
-      final carbs = int.tryParse(structured['Carbs']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
-      final protein = int.tryParse(structured['Proteins']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
-      final fat = int.tryParse(structured['Fats']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
-      final grams = int.tryParse(structured['Weight (g)']?.toString().replaceAll(RegExp(r'[^\d]'), '') ?? '0');
+      final kcal = int.tryParse(
+          structured['Calories']?.toString().replaceAll(RegExp(r'[^\d]'), '') ??
+              '0');
+      final carbs = int.tryParse(
+          structured['Carbs']?.toString().replaceAll(RegExp(r'[^\d]'), '') ??
+              '0');
+      final protein = int.tryParse(
+          structured['Proteins']?.toString().replaceAll(RegExp(r'[^\d]'), '') ??
+              '0');
+      final fat = int.tryParse(
+          structured['Fats']?.toString().replaceAll(RegExp(r'[^\d]'), '') ??
+              '0');
+      final grams = int.tryParse(structured['Weight (g)']
+              ?.toString()
+              .replaceAll(RegExp(r'[^\d]'), '') ??
+          '0');
       final mealName = structured['Name']?.toString();
-      
+
       final newMeal = {
         'image': image,
         'imagePath': image?.path,
         'description': text,
         'name': mealName ?? (text.isNotEmpty ? text : null),
-        'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
+        'result':
+            const JsonEncoder.withIndent('  ').convert(localizedStructured),
         'structured': localizedStructured,
         'grams': grams,
         'kcal': kcal,
@@ -2119,14 +2463,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         'time': DateTime.now(),
         'hcWritten': false,
       };
-      
+
       setState(() {
-        _resultText = const JsonEncoder.withIndent('  ').convert(localizedStructured);
+        _resultText =
+            const JsonEncoder.withIndent('  ').convert(localizedStructured);
         if (jobId != null) {
           final idx = _queue.indexWhere((j) => j['id'] == jobId);
           if (idx >= 0) _queue.removeAt(idx);
         }
-        
+
         // Handle meal builder mode vs normal mode
         if (_mealBuilderActive) {
           // Add to current meal results instead of history
@@ -2143,14 +2488,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       } else {
         await _saveHistory();
       }
-      if (jobId != null) { await _saveQueue(); }
-      
       if (jobId != null) {
-        await _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
+        await _saveQueue();
       }
-      
 
-      
+      if (jobId != null) {
+        await _notifyDone(
+            jobId: jobId,
+            title: S.of(context).result,
+            body: S.of(context).resultSaved);
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(S.of(context).resultSaved)),
@@ -2161,7 +2509,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _controller.clear();
           });
         }
-        
+
         // Only switch to history tab and show popup in normal mode
         if (!_mealBuilderActive) {
           if (jobId == null) {
@@ -2172,8 +2520,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _showMealDetails(newMeal);
           }
         }
-        
-        _addNotification('Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
+
+        _addNotification(
+            'Mock result saved${jobId != null ? ' (#$jobId)' : ''}');
       }
       return;
     }
@@ -2193,7 +2542,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       request.files.add(await http.MultipartFile.fromPath(
         'image',
         image.path,
-        contentType: MediaType.parse(lookupMimeType(image.path) ?? 'application/octet-stream'),
+        contentType: MediaType.parse(
+            lookupMimeType(image.path) ?? 'application/octet-stream'),
       ));
     }
     http.StreamedResponse? response;
@@ -2202,8 +2552,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       response = await request.send();
       responseBody = await response.stream.bytesToString();
 
-  if (response.statusCode == 200) {
-  String pretty;
+      if (response.statusCode == 200) {
+        String pretty;
         try {
           final decoded = json.decode(responseBody);
           if (decoded is Map && decoded['ok'] == true) {
@@ -2222,97 +2572,125 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           pretty = responseBody;
         }
 
-  // Try to extract a structured map and kcal value for better UI
-  Map<String, dynamic>? structured;
-  int? kcal;
-  int? carbs;
-  int? protein;
-  int? fat;
-  String? mealName;
+        // Try to extract a structured map and kcal value for better UI
+        Map<String, dynamic>? structured;
+        int? kcal;
+        int? carbs;
+        int? protein;
+        int? fat;
+        String? mealName;
         try {
           final decoded = json.decode(responseBody);
-          if (decoded is Map && decoded['ok'] == true && decoded['data'] is Map) {
+          if (decoded is Map &&
+              decoded['ok'] == true &&
+              decoded['data'] is Map) {
             structured = Map<String, dynamic>.from(decoded['data'] as Map);
           } else if (decoded is Map) {
             structured = Map<String, dynamic>.from(decoded);
           }
         } catch (_) {}
         // Extract preferred fields if present
-  if (structured != null) {
+        if (structured != null) {
           // Localize/normalize structured keys for the current UI locale
           structured = _localizedStructured(structured);
-          mealName = structured['Name']?.toString() ?? structured["Nom de l'aliment"]?.toString() ?? structured['name']?.toString();
+          mealName = structured['Name']?.toString() ??
+              structured["Nom de l'aliment"]?.toString() ??
+              structured['name']?.toString();
         }
 
         // Fallback: attempt to parse calories & carbs/protein/fat from any text
-        String textSource = structured != null ? jsonEncode(structured) : pretty;
+        String textSource =
+            structured != null ? jsonEncode(structured) : pretty;
         // kcal can be integer or decimal (rare); round to nearest int
-        final kcalMatch = RegExp(r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)', caseSensitive: false)
+        final kcalMatch = RegExp(
+                r'(\d{1,5}(?:[\.,]\d{1,2})?)\s*(k?cal|kilo?calories?)',
+                caseSensitive: false)
             .firstMatch(textSource);
         if (kcalMatch != null) {
           final raw = kcalMatch.group(1)!.replaceAll(',', '.');
           final d = double.tryParse(raw);
           if (d != null) kcal = d.round();
         } else if (structured != null) {
-          final calVal = structured['Calories'] ?? structured['kcal'] ?? structured['calories'];
+          final calVal = structured['Calories'] ??
+              structured['kcal'] ??
+              structured['calories'];
           if (calVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(calVal.toString());
+            final numMatch =
+                RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(calVal.toString());
             if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              final d =
+                  double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
               if (d != null) kcal = d.round();
             }
           }
         }
 
-  // carbs can be decimal like 60.2g; round to nearest gram
-        final carbsMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(carb|glucid\w*)', caseSensitive: false)
+        // carbs can be decimal like 60.2g; round to nearest gram
+        final carbsMatch = RegExp(
+                r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(carb|glucid\w*)',
+                caseSensitive: false)
             .firstMatch(textSource);
         if (carbsMatch != null) {
           final raw = carbsMatch.group(1)!.replaceAll(',', '.');
           final d = double.tryParse(raw);
           if (d != null) carbs = d.round();
         } else if (structured != null) {
-          final cVal = structured['Glucides'] ?? structured['carbs'] ?? structured['Carbs'];
+          final cVal = structured['Glucides'] ??
+              structured['carbs'] ??
+              structured['Carbs'];
           if (cVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(cVal.toString());
+            final numMatch =
+                RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(cVal.toString());
             if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              final d =
+                  double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
               if (d != null) carbs = d.round();
             }
           }
         }
 
         // proteins
-        final proteinMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(protein|prot\w*)', caseSensitive: false)
+        final proteinMatch = RegExp(
+                r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(protein|prot\w*)',
+                caseSensitive: false)
             .firstMatch(textSource);
         if (proteinMatch != null) {
           final raw = proteinMatch.group(1)!.replaceAll(',', '.');
           final d = double.tryParse(raw);
           if (d != null) protein = d.round();
         } else if (structured != null) {
-          final pVal = structured['Proteines'] ?? structured['protein'] ?? structured['Proteins'];
+          final pVal = structured['Proteines'] ??
+              structured['protein'] ??
+              structured['Proteins'];
           if (pVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(pVal.toString());
+            final numMatch =
+                RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(pVal.toString());
             if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              final d =
+                  double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
               if (d != null) protein = d.round();
             }
           }
         }
 
         // fats
-        final fatMatch = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(fat|lipid\w*|gras)', caseSensitive: false)
+        final fatMatch = RegExp(
+                r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g\s*(fat|lipid\w*|gras)',
+                caseSensitive: false)
             .firstMatch(textSource);
         if (fatMatch != null) {
           final raw = fatMatch.group(1)!.replaceAll(',', '.');
           final d = double.tryParse(raw);
           if (d != null) fat = d.round();
         } else if (structured != null) {
-          final fVal = structured['Lipides'] ?? structured['fat'] ?? structured['Fats'];
+          final fVal =
+              structured['Lipides'] ?? structured['fat'] ?? structured['Fats'];
           if (fVal != null) {
-            final numMatch = RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(fVal.toString());
+            final numMatch =
+                RegExp(r'(\d+(?:[\.,]\d+)?)').firstMatch(fVal.toString());
             if (numMatch != null) {
-              final d = double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
+              final d =
+                  double.tryParse(numMatch.group(1)!.replaceAll(',', '.'));
               if (d != null) fat = d.round();
             }
           }
@@ -2327,7 +2705,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'description': text,
           'name': mealName ?? (text.isNotEmpty ? text : null),
           // Prefer pretty-printed, locale-normalized JSON when available
-          'result': structured != null ? const JsonEncoder.withIndent('  ').convert(structured) : pretty,
+          'result': structured != null
+              ? const JsonEncoder.withIndent('  ').convert(structured)
+              : pretty,
           'structured': structured,
           'grams': aiGrams,
           'kcal': kcal,
@@ -2343,7 +2723,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
             if (idx >= 0) _queue.removeAt(idx);
           }
-          
+
           // Handle meal builder mode vs normal mode
           if (_mealBuilderActive) {
             // Add to current meal results instead of history
@@ -2360,13 +2740,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         } else {
           await _saveHistory();
         }
-        if (jobId != null) { await _saveQueue(); }
+        if (jobId != null) {
+          await _saveQueue();
+        }
         if (jobId != null) {
           // ignore: discarded_futures
-          _notifyDone(jobId: jobId, title: S.of(context).result, body: S.of(context).resultSaved);
+          _notifyDone(
+              jobId: jobId,
+              title: S.of(context).result,
+              body: S.of(context).resultSaved);
         }
-
-
 
         // Notify, reset composer, and show the result in History so users see success
         if (mounted) {
@@ -2379,7 +2762,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               _controller.clear();
             });
           }
-          
+
           // Only switch to history tab and show popup in normal mode
           if (!_mealBuilderActive) {
             if (jobId == null) {
@@ -2392,7 +2775,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               }
             });
           }
-          
+
           _addNotification('Result saved${jobId != null ? ' (#$jobId)' : ''}');
         }
 
@@ -2400,7 +2783,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         // Request permissions only when we have data to write
         try {
           await _ensureHealthConfigured();
-          if (mounted && (kcal != null || carbs != null || protein != null || fat != null)) {
+          if (mounted &&
+              (kcal != null ||
+                  carbs != null ||
+                  protein != null ||
+                  fat != null)) {
             // On Android, ensure Health Connect is installed/updated before asking permissions
             if (!kIsWeb && Platform.isAndroid) {
               final status = await _health.getHealthConnectSdkStatus();
@@ -2408,10 +2795,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               if (status != HealthConnectSdkStatus.sdkAvailable) {
                 if (mounted) {
                   final s = S.of(context);
-                  final msg = status == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired
+                  final msg = status ==
+                          HealthConnectSdkStatus
+                              .sdkUnavailableProviderUpdateRequired
                       ? s.updateHc
                       : s.installHc;
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(msg)));
                 }
                 // Offer to install/update via the Daily tab button; bail out of writing
                 return;
@@ -2443,7 +2833,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 setState(() => _healthAuthorized = true);
                 // Show quick feedback and capture failures for troubleshooting
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(written ? S.of(context).hcWriteOk : S.of(context).hcWriteFail)),
+                  SnackBar(
+                      content: Text(written
+                          ? S.of(context).hcWriteOk
+                          : S.of(context).hcWriteFail)),
                 );
                 if (written) {
                   // mark written and persist
@@ -2465,17 +2858,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         String? serverMsg;
         try {
           final decoded = json.decode(responseBody);
-          if (decoded is Map && decoded['ok'] == false && decoded['error'] is String) {
+          if (decoded is Map &&
+              decoded['ok'] == false &&
+              decoded['error'] is String) {
             serverMsg = decoded['error'] as String;
           }
         } catch (_) {}
-  final is50x = response.statusCode == 503 || response.statusCode == 500;
-    final s = S.of(context);
-    final msg = (serverMsg != null && serverMsg.isNotEmpty)
-      ? serverMsg
-      : (is50x
-        ? s.aiOverloaded
-        : s.requestFailedWithCode(response.statusCode));
+        final is50x = response.statusCode == 503 || response.statusCode == 500;
+        final s = S.of(context);
+        final msg = (serverMsg != null && serverMsg.isNotEmpty)
+            ? serverMsg
+            : (is50x
+                ? s.aiOverloaded
+                : s.requestFailedWithCode(response.statusCode));
         if (mounted) {
           if (jobId != null) {
             final idx = _queue.indexWhere((j) => j['id'] == jobId);
@@ -2483,19 +2878,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             _addNotification('Request failed (#$jobId): $msg');
             await _saveQueue();
             // ignore: discarded_futures
-            _notifyDone(jobId: jobId, title: S.of(context).requestFailed, body: msg);
+            _notifyDone(
+                jobId: jobId, title: S.of(context).requestFailed, body: msg);
           }
           if (is50x) {
             // Show a popup dialog to switch to flash model
-      showDialog(
+            showDialog(
               context: context,
               builder: (ctx) => AlertDialog(
-        title: Text(s.flashTitle),
-        content: Text('$msg\n\n${s.flashExplain}'),
+                title: Text(s.flashTitle),
+                content: Text('$msg\n\n${s.flashExplain}'),
                 actions: [
                   TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: Text(s.cancel),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: Text(s.cancel),
                   ),
                   OutlinedButton(
                     onPressed: () async {
@@ -2507,9 +2903,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   FilledButton(
                     onPressed: () async {
                       Navigator.of(ctx).pop();
-                      await _sendMessageCore(image: image, text: text, useFlash: true, jobId: jobId);
+                      await _sendMessageCore(
+                          image: image,
+                          text: text,
+                          useFlash: true,
+                          jobId: jobId);
                     },
-          child: Text(s.useFlash),
+                    child: Text(s.useFlash),
                   ),
                 ],
               ),
@@ -2527,11 +2927,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       );
       if (jobId != null) {
         final idx = _queue.indexWhere((j) => j['id'] == jobId);
-  if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
+        if (idx >= 0) setState(() => _queue[idx]['status'] = 'error');
         _addNotification('Request failed (#$jobId)');
-  await _saveQueue();
-  // ignore: discarded_futures
-  _notifyDone(jobId: jobId, title: S.of(context).requestFailed, body: S.of(context).serviceUnavailable);
+        await _saveQueue();
+        // ignore: discarded_futures
+        _notifyDone(
+            jobId: jobId,
+            title: S.of(context).requestFailed,
+            body: S.of(context).serviceUnavailable);
       }
     } finally {
       // _loading handled by caller for non-queue mode
@@ -2550,17 +2953,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       }
       return;
     }
-  // Force pro model for debugging to compare against flash behavior
-  final uri = Uri.parse('${_baseUrl()}/data?flash=0');
+    // Force pro model for debugging to compare against flash behavior
+    final uri = Uri.parse('${_baseUrl()}/data?flash=0');
     final request = http.MultipartRequest('POST', uri)
       ..fields['message'] = _controller.text;
-  request.headers['x-app-token'] = 'FromHectaroxWithLove';
-  if (kPasswordAuthEnabled && authState.token != null) request.headers['Authorization'] = 'Bearer ${authState.token}';
+    request.headers['x-app-token'] = 'FromHectaroxWithLove';
+    if (kPasswordAuthEnabled && authState.token != null)
+      request.headers['Authorization'] = 'Bearer ${authState.token}';
     if (_image != null) {
       request.files.add(await http.MultipartFile.fromPath(
         'image',
         _image!.path,
-        contentType: MediaType.parse(lookupMimeType(_image!.path) ?? 'application/octet-stream'),
+        contentType: MediaType.parse(
+            lookupMimeType(_image!.path) ?? 'application/octet-stream'),
       ));
     }
     if (mounted) setState(() => _loading = true);
@@ -2581,9 +2986,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('${s.debugRawTitle} (${status})'),
-        content: SingleChildScrollView(child: SelectableText(body.isEmpty ? s.emptyResponse : body)),
+        content: SingleChildScrollView(
+            child: SelectableText(body.isEmpty ? s.emptyResponse : body)),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(s.ok)),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(), child: Text(s.ok)),
         ],
       ),
     );
@@ -2603,7 +3010,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     try {
       await _ensureHealthConfigured();
       final status = await _health.getHealthConnectSdkStatus();
-      final has = await _health.hasPermissions([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
+      final has = await _health.hasPermissions([HealthDataType.NUTRITION],
+          permissions: [HealthDataAccess.READ_WRITE]);
       if (mounted) {
         setState(() {
           _hcSdkStatus = status;
@@ -2618,10 +3026,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   Future<void> _requestHealthPermissions() async {
     try {
       await _ensureHealthConfigured();
-  final ok = await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
+      final ok = await _health.requestAuthorization([HealthDataType.NUTRITION],
+          permissions: [HealthDataAccess.READ_WRITE]);
       if (mounted) setState(() => _healthAuthorized = ok);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? S.of(context).hcGranted : S.of(context).hcDenied)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(ok ? S.of(context).hcGranted : S.of(context).hcDenied)));
       }
     } catch (e) {
       if (mounted) setState(() => _healthLastError = e.toString());
@@ -2646,7 +3057,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         permissions: const [HealthDataAccess.READ],
       );
       if (!totalGranted) {
-        if (mounted) setState(() => _healthLastError = 'Permission denied for TOTAL_CALORIES_BURNED');
+        if (mounted)
+          setState(() =>
+              _healthLastError = 'Permission denied for TOTAL_CALORIES_BURNED');
         return;
       }
       if (mounted) setState(() => _loadingBurned = true);
@@ -2719,13 +3132,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     }
 
     int? fromText(String s) {
-      final r1 = RegExp(r'(?:weight|poids)[^\d]{0,12}(\d{1,4}(?:[\.,]\d{1,2})?)\s*g', caseSensitive: false);
+      final r1 = RegExp(
+          r'(?:weight|poids)[^\d]{0,12}(\d{1,4}(?:[\.,]\d{1,2})?)\s*g',
+          caseSensitive: false);
       final m1 = r1.firstMatch(s);
       if (m1 != null) {
         final d = double.tryParse(m1.group(1)!.replaceAll(',', '.'));
         if (d != null) return d.round();
       }
-      final r2 = RegExp(r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g[^A-Za-z]{0,6}(?:weight|poids)', caseSensitive: false);
+      final r2 = RegExp(
+          r'(\d{1,4}(?:[\.,]\d{1,2})?)\s*g[^A-Za-z]{0,6}(?:weight|poids)',
+          caseSensitive: false);
       final m2 = r2.firstMatch(s);
       if (m2 != null) {
         final d = double.tryParse(m2.group(1)!.replaceAll(',', '.'));
@@ -2749,7 +3166,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   Map<String, List<Map<String, dynamic>>> _groupHistoryByDay() {
     final Map<String, List<Map<String, dynamic>>> groups = {};
     final now = DateTime.now();
-    for (final item in _history..sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime))) {
+    for (final item in _history
+      ..sort(
+          (a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime))) {
       final dt = (item['time'] as DateTime).toLocal();
       final dayKey = _dayBucket(now, dt);
       groups.putIfAbsent(dayKey, () => []).add(item);
@@ -2761,8 +3180,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final dNow = DateTime(now.year, now.month, now.day);
     final dDt = DateTime(dt.year, dt.month, dt.day);
     final diff = dNow.difference(dDt).inDays;
-  if (diff == 0) return S.of(context).today;
-  if (diff == 1) return S.of(context).yesterday;
+    if (diff == 0) return S.of(context).today;
+    if (diff == 1) return S.of(context).yesterday;
     return DateFormat('d MMMM').format(dDt);
   }
 
@@ -2788,7 +3207,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   // Check if camera is available on this platform
-  bool get canUseCamera => !kIsWeb && !(Platform.isLinux || Platform.isWindows || Platform.isMacOS);
+  bool get canUseCamera =>
+      !kIsWeb && !(Platform.isLinux || Platform.isWindows || Platform.isMacOS);
 
   // Build capture card widget
   Widget _buildCaptureCard() {
@@ -2821,9 +3241,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           Text(
             'Capture',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 12),
           Column(
@@ -2832,21 +3252,29 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: canUseCamera ? _captureImage : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Camera not available in web mode')),
-                    );
-                  },
+                  onPressed: canUseCamera
+                      ? _captureImage
+                      : () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content:
+                                    Text('Camera not available in web mode')),
+                          );
+                        },
                   icon: const Icon(Icons.photo_camera_outlined, size: 18),
                   label: Text(s.takePhoto),
                   style: FilledButton.styleFrom(
-                    backgroundColor: canUseCamera 
-                      ? null // Use default primary color
-                      : Theme.of(context).colorScheme.primary.withOpacity(0.6),
+                    backgroundColor: canUseCamera
+                        ? null // Use default primary color
+                        : Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.6),
                     foregroundColor: canUseCamera
-                      ? null // Use default onPrimary color
-                      : Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                        ? null // Use default onPrimary color
+                        : Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                   ),
                 ),
               ),
@@ -2858,7 +3286,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   icon: const Icon(Icons.image_outlined, size: 18),
                   label: Text(s.pickImage),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                   ),
                 ),
               ),
@@ -2872,9 +3301,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   Widget _buildLibrarySection() {
     final s = S.of(context);
     final scheme = Theme.of(context).colorScheme;
-  final hasRecent = _latestMealForLibrary() != null;
-  final loading = !_libraryLoaded;
-  final previewItems = _library.take(3).toList(growable: false);
+    final hasRecent = _latestMealForLibrary() != null;
+    final loading = !_libraryLoaded;
+    final previewItems = _library.take(3).toList(growable: false);
 
     return Container(
       width: double.infinity,
@@ -2895,7 +3324,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               Expanded(
                 child: Text(
                   s.foodLibrary,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -2978,14 +3410,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   right: 8,
                   top: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: scheme.error,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       _queue.length.toString(),
-                      style: TextStyle(color: scheme.onError, fontSize: 11, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: scheme.onError,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -2998,12 +3434,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           )
         ],
       ),
-    body: TabBarView(
+      body: TabBarView(
         controller: _tabController,
         children: [
           _buildHistoryTab(),
           _buildMainTab(),
-      _buildDailyTab(),
+          _buildDailyTab(),
         ],
       ),
       bottomNavigationBar: Column(
@@ -3041,15 +3477,25 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           top: false,
                           bottom: false,
                           child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            margin: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
                             child: FilledButton.icon(
                               onPressed: _toggleMealBuilder,
-                              icon: Icon(_mealBuilderActive ? Icons.restaurant_menu : Icons.add_circle),
-                              label: Text(_mealBuilderActive ? S.of(context).finishMeal : S.of(context).startMeal),
+                              icon: Icon(_mealBuilderActive
+                                  ? Icons.restaurant_menu
+                                  : Icons.add_circle),
+                              label: Text(_mealBuilderActive
+                                  ? S.of(context).finishMeal
+                                  : S.of(context).startMeal),
                               style: FilledButton.styleFrom(
-                                backgroundColor: _mealBuilderActive ? scheme.secondary : scheme.primary,
-                                foregroundColor: _mealBuilderActive ? scheme.onSecondary : scheme.onPrimary,
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                                backgroundColor: _mealBuilderActive
+                                    ? scheme.secondary
+                                    : scheme.primary,
+                                foregroundColor: _mealBuilderActive
+                                    ? scheme.onSecondary
+                                    : scheme.onPrimary,
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 12, horizontal: 20),
                               ),
                             ),
                           ),
@@ -3071,7 +3517,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 tabs: [
                   Tab(icon: const Icon(Icons.history), text: s.tabHistory),
                   Tab(icon: const Icon(Icons.camera_alt), text: s.tabMain),
-                  Tab(icon: const Icon(Icons.local_fire_department), text: s.tabDaily),
+                  Tab(
+                      icon: const Icon(Icons.local_fire_department),
+                      text: s.tabDaily),
                 ],
                 indicatorColor: scheme.primary,
                 labelColor: scheme.primary,
@@ -3095,170 +3543,175 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             final s = S.of(context);
             final current = appSettings.locale?.languageCode ?? 'system';
             return SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.only(
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: ListTile(
-                        title: Text(s.settings, style: Theme.of(ctx).textTheme.titleLarge),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ListTile(
+                            title: Text(s.settings,
+                                style: Theme.of(ctx).textTheme.titleLarge),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Close settings',
+                        ),
+                      ],
+                    ),
+                    RadioListTile<String>(
+                      value: 'system',
+                      groupValue: current,
+                      title: Text(s.systemLanguage),
+                      onChanged: (_) async {
+                        await appSettings.setLocale(null);
+                        setDialogState(() {
+                          // Update the dialog state to reflect the change
+                        });
+                      },
+                    ),
+                    RadioListTile<String>(
+                      value: 'en',
+                      groupValue: current,
+                      title: const Text('English'),
+                      onChanged: (_) async {
+                        await appSettings.setLocale(const Locale('en'));
+                        setDialogState(() {
+                          // Update the dialog state to reflect the change
+                        });
+                      },
+                    ),
+                    RadioListTile<String>(
+                      value: 'fr',
+                      groupValue: current,
+                      title: const Text('Français'),
+                      onChanged: (_) async {
+                        await appSettings.setLocale(const Locale('fr'));
+                        setDialogState(() {
+                          // Update the dialog state to reflect the change
+                        });
+                      },
+                    ),
+                    const Divider(),
+                    ListTile(
+                        title: Text(s.theme,
+                            style: Theme.of(ctx).textTheme.titleMedium)),
+                    RadioListTile<ThemeMode>(
+                      value: ThemeMode.system,
+                      groupValue: appSettings.themeMode,
+                      title: Text(s.systemTheme),
+                      onChanged: (value) {
+                        if (value != null) {
+                          appSettings.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    RadioListTile<ThemeMode>(
+                      value: ThemeMode.light,
+                      groupValue: appSettings.themeMode,
+                      title: Text(s.lightTheme),
+                      onChanged: (value) {
+                        if (value != null) {
+                          appSettings.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    RadioListTile<ThemeMode>(
+                      value: ThemeMode.dark,
+                      groupValue: appSettings.themeMode,
+                      title: Text(s.darkTheme),
+                      onChanged: (value) {
+                        if (value != null) {
+                          appSettings.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      value: _queueMode,
+                      title: Text(S.of(context).queueInBackground),
+                      subtitle: Text(kIsWeb
+                          ? 'Web mode: 5-second delay simulation (no background service)'
+                          : S.of(context).queueInBackgroundHint),
+                      onChanged: (v) async {
+                        final enabled = v;
+                        setState(() => _queueMode = enabled);
+                        setDialogState(() => _queueMode = enabled);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('queue_mode_enabled', enabled);
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      value: _announcementsDisabled,
+                      title: Text(S.of(context).disableAnnouncements),
+                      subtitle: Text(S.of(context).disableAnnouncementsHint),
+                      onChanged: (v) async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool(
+                            'disable_announcements_globally', v);
+                        if (!mounted) return;
+                        setState(() => _announcementsDisabled = v);
+                        setDialogState(() => _announcementsDisabled = v);
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      value: appSettings.daltonian,
+                      title: Text(s.daltonianMode),
+                      subtitle: Text(s.daltonianModeHint),
+                      onChanged: (v) async {
+                        await appSettings.setDaltonian(v);
+                      },
+                    ),
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(Icons.upload_file),
+                      title: Text(s.exportHistory),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await _exportHistory();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.download),
+                      title: Text(s.importHistory),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await _importHistory();
+                      },
+                    ),
+                    if (kPasswordAuthEnabled) ...[
+                      const Divider(),
+                      ListTile(
+                        leading: const Icon(Icons.logout),
+                        title: Text(S.of(context).logout),
+                        onTap: () async {
+                          await authState.setToken(null);
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(
+                                  builder: (_) => const LoginScreen()),
+                              (route) => false,
+                            );
+                          }
+                        },
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close),
-                      tooltip: 'Close settings',
-                    ),
+                    ],
                   ],
                 ),
-                RadioListTile<String>(
-                  value: 'system',
-                  groupValue: current,
-                  title: Text(s.systemLanguage),
-                  onChanged: (_) async {
-                    await appSettings.setLocale(null);
-                    setDialogState(() {
-                      // Update the dialog state to reflect the change
-                    });
-                  },
-                ),
-                RadioListTile<String>(
-                  value: 'en',
-                  groupValue: current,
-                  title: const Text('English'),
-                  onChanged: (_) async {
-                    await appSettings.setLocale(const Locale('en'));
-                    setDialogState(() {
-                      // Update the dialog state to reflect the change
-                    });
-                  },
-                ),
-                RadioListTile<String>(
-                  value: 'fr',
-                  groupValue: current,
-                  title: const Text('Français'),
-                  onChanged: (_) async {
-                    await appSettings.setLocale(const Locale('fr'));
-                    setDialogState(() {
-                      // Update the dialog state to reflect the change
-                    });
-                  },
-                ),
-                const Divider(),
-                ListTile(title: Text(s.theme, style: Theme.of(ctx).textTheme.titleMedium)),
-                RadioListTile<ThemeMode>(
-                  value: ThemeMode.system,
-                  groupValue: appSettings.themeMode,
-                  title: Text(s.systemTheme),
-                  onChanged: (value) {
-                    if (value != null) {
-                      appSettings.setThemeMode(value);
-                    }
-                  },
-                ),
-                RadioListTile<ThemeMode>(
-                  value: ThemeMode.light,
-                  groupValue: appSettings.themeMode,
-                  title: Text(s.lightTheme),
-                  onChanged: (value) {
-                    if (value != null) {
-                      appSettings.setThemeMode(value);
-                    }
-                  },
-                ),
-                RadioListTile<ThemeMode>(
-                  value: ThemeMode.dark,
-                  groupValue: appSettings.themeMode,
-                  title: Text(s.darkTheme),
-                  onChanged: (value) {
-                    if (value != null) {
-                      appSettings.setThemeMode(value);
-                    }
-                  },
-                ),
-                const Divider(),
-                SwitchListTile(
-                  value: _queueMode,
-                  title: Text(S.of(context).queueInBackground),
-                  subtitle: Text(kIsWeb 
-                    ? 'Web mode: 5-second delay simulation (no background service)'
-                    : S.of(context).queueInBackgroundHint),
-                  onChanged: (v) async {
-                    final enabled = v;
-                    setState(() => _queueMode = enabled);
-                    setDialogState(() => _queueMode = enabled);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('queue_mode_enabled', enabled);
-                  },
-                ),
-                const Divider(),
-                SwitchListTile(
-                  value: _announcementsDisabled,
-                  title: Text(S.of(context).disableAnnouncements),
-                  subtitle: Text(S.of(context).disableAnnouncementsHint),
-                  onChanged: (v) async {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('disable_announcements_globally', v);
-                    if (!mounted) return;
-                    setState(() => _announcementsDisabled = v);
-                    setDialogState(() => _announcementsDisabled = v);
-                  },
-                ),
-                const Divider(),
-                SwitchListTile(
-                  value: appSettings.daltonian,
-                  title: Text(s.daltonianMode),
-                  subtitle: Text(s.daltonianModeHint),
-                  onChanged: (v) async {
-                    await appSettings.setDaltonian(v);
-                  },
-                ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.upload_file),
-                  title: Text(s.exportHistory),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    await _exportHistory();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.download),
-                  title: Text(s.importHistory),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    await _importHistory();
-                  },
-                ),
-                if (kPasswordAuthEnabled) ...[
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.logout),
-                    title: Text(S.of(context).logout),
-                    onTap: () async {
-                      await authState.setToken(null);
-                      if (mounted) {
-                        Navigator.pop(ctx);
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                          (route) => false,
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
+              ),
+            );
           },
         );
       },
@@ -3268,32 +3721,45 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   Future<void> _exportHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('history_json') ?? json.encode(_history.map((m) {
-        Map<String, dynamic> toJson(Map<String, dynamic> x) {
-          return {
-            'isGroup': x['isGroup'] == true,
-            'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
-            'description': x['description'],
-            'name': x['name'],
-            'result': x['result'],
-            'structured': x['structured'],
-            'grams': x['grams'],
-            'kcal': x['kcal'],
-            'carbs': x['carbs'],
-            'protein': x['protein'],
-            'fat': x['fat'],
-            'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
-            'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
-            'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
-            'hcWritten': x['hcWritten'] == true,
-            if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
-          };
-        }
-        return toJson(Map<String, dynamic>.from(m));
-      }).toList());
+      final raw = prefs.getString('history_json') ??
+          json.encode(_history.map((m) {
+            Map<String, dynamic> toJson(Map<String, dynamic> x) {
+              return {
+                'isGroup': x['isGroup'] == true,
+                'imagePath': (x['imagePath'] as String?) ??
+                    (x['image'] is XFile ? (x['image'] as XFile).path : null),
+                'description': x['description'],
+                'name': x['name'],
+                'result': x['result'],
+                'structured': x['structured'],
+                'grams': x['grams'],
+                'kcal': x['kcal'],
+                'carbs': x['carbs'],
+                'protein': x['protein'],
+                'fat': x['fat'],
+                'time': (x['time'] is DateTime)
+                    ? (x['time'] as DateTime).toIso8601String()
+                    : x['time'],
+                'hcStart': (x['hcStart'] is DateTime)
+                    ? (x['hcStart'] as DateTime).toIso8601String()
+                    : x['hcStart'],
+                'hcEnd': (x['hcEnd'] is DateTime)
+                    ? (x['hcEnd'] as DateTime).toIso8601String()
+                    : x['hcEnd'],
+                'hcWritten': x['hcWritten'] == true,
+                if (x['children'] is List)
+                  'children': (x['children'] as List)
+                      .map((c) => toJson(Map<String, dynamic>.from(c)))
+                      .toList(),
+              };
+            }
+
+            return toJson(Map<String, dynamic>.from(m));
+          }).toList());
 
       final bytes = utf8.encode(raw);
-      final filename = 'nutrilens-history-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.json';
+      final filename =
+          'nutrilens-history-${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.json';
       final path = await FilePicker.platform.saveFile(
         dialogTitle: S.of(context).exportHistory,
         fileName: filename,
@@ -3303,13 +3769,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       );
       if (!mounted) return;
       if (path == null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportCanceled)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(S.of(context).exportCanceled)));
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportSuccess)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).exportSuccess)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).exportFailed)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).exportFailed)));
     }
   }
 
@@ -3321,8 +3790,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         title: Text(s.importHistory),
         content: Text(s.confirmImportReplace),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(MaterialLocalizations.of(ctx).okButtonLabel)),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(MaterialLocalizations.of(ctx).cancelButtonLabel)),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(MaterialLocalizations.of(ctx).okButtonLabel)),
         ],
       ),
     );
@@ -3350,11 +3823,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           }
           if (m['hcStart'] is String) {
             final t = DateTime.tryParse(m['hcStart']);
-            if (t != null) m['hcStart'] = t; else m.remove('hcStart');
+            if (t != null)
+              m['hcStart'] = t;
+            else
+              m.remove('hcStart');
           }
           if (m['hcEnd'] is String) {
             final t = DateTime.tryParse(m['hcEnd']);
-            if (t != null) m['hcEnd'] = t; else m.remove('hcEnd');
+            if (t != null)
+              m['hcEnd'] = t;
+            else
+              m.remove('hcEnd');
           }
           if (m['children'] is List) {
             final List<Map<String, dynamic>> kids = [];
@@ -3367,11 +3846,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                 }
                 if (cm['hcStart'] is String) {
                   final t = DateTime.tryParse(cm['hcStart']);
-                  if (t != null) cm['hcStart'] = t; else cm.remove('hcStart');
+                  if (t != null)
+                    cm['hcStart'] = t;
+                  else
+                    cm.remove('hcStart');
                 }
                 if (cm['hcEnd'] is String) {
                   final t = DateTime.tryParse(cm['hcEnd']);
-                  if (t != null) cm['hcEnd'] = t; else cm.remove('hcEnd');
+                  if (t != null)
+                    cm['hcEnd'] = t;
+                  else
+                    cm.remove('hcEnd');
                 }
                 kids.add(cm);
               }
@@ -3388,10 +3873,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       });
       await _saveHistory();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).importSuccess)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).importSuccess)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).importFailed)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).importFailed)));
     }
   }
 
@@ -3401,7 +3888,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     try {
       info = await PackageInfo.fromPlatform();
     } catch (_) {
-      info = PackageInfo(appName: 'App', packageName: 'app', version: 'unknown', buildNumber: '-', buildSignature: '', installerStore: null);
+      info = PackageInfo(
+          appName: 'App',
+          packageName: 'app',
+          version: 'unknown',
+          buildNumber: '-',
+          buildSignature: '',
+          installerStore: null);
     }
     if (!mounted) return;
     showModalBottomSheet(
@@ -3433,7 +3926,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   title: Text(s.openGithubIssue),
                   trailing: const Icon(Icons.open_in_new),
                   onTap: () async {
-                    final uri = Uri.parse('https://github.com/hectarox/NutriLens/issues');
+                    final uri = Uri.parse(
+                        'https://github.com/hectarox/NutriLens/issues');
                     await launchUrl(uri, mode: LaunchMode.externalApplication);
                   },
                 ),
@@ -3447,7 +3941,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Widget _buildHistoryTab() {
     final scheme = Theme.of(context).colorScheme;
-  final s = S.of(context);
+    final s = S.of(context);
     if (_history.isEmpty) {
       return Center(
         child: Column(
@@ -3455,7 +3949,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           children: [
             Icon(Icons.history, size: 48, color: scheme.onSurfaceVariant),
             const SizedBox(height: 12),
-      Text(s.noHistory, style: TextStyle(color: scheme.onSurfaceVariant)),
+            Text(s.noHistory, style: TextStyle(color: scheme.onSurfaceVariant)),
           ],
         ),
       );
@@ -3464,12 +3958,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     return ListView(
       padding: const EdgeInsets.all(12),
       children: grouped.entries.map((entry) {
-        final totalCarbs = entry.value.fold<int>(0, (s, e) => s + (e['carbs'] as int? ?? 0));
-        final totalProtein = entry.value.fold<int>(0, (s, e) => s + (e['protein'] as int? ?? 0));
-        final totalFat = entry.value.fold<int>(0, (s, e) => s + (e['fat'] as int? ?? 0));
+        final totalCarbs =
+            entry.value.fold<int>(0, (s, e) => s + (e['carbs'] as int? ?? 0));
+        final totalProtein =
+            entry.value.fold<int>(0, (s, e) => s + (e['protein'] as int? ?? 0));
+        final totalFat =
+            entry.value.fold<int>(0, (s, e) => s + (e['fat'] as int? ?? 0));
         return _ExpandableDaySection(
           title: entry.key,
-          totalKcal: entry.value.fold<int>(0, (s, e) => s + (e['kcal'] as int? ?? 0)),
+          totalKcal:
+              entry.value.fold<int>(0, (s, e) => s + (e['kcal'] as int? ?? 0)),
           totalCarbs: totalCarbs,
           totalProtein: totalProtein,
           totalFat: totalFat,
@@ -3477,19 +3975,31 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             return _HistoryMealCard(
               meal: meal,
               onDelete: () async {
-                debugPrint('[delete] Request to delete meal: id=${meal['id']} time=${_asDateTime(meal['time'])} name=${meal['name'] ?? meal['description']}');
+                debugPrint(
+                    '[delete] Request to delete meal: id=${meal['id']} time=${_asDateTime(meal['time'])} name=${meal['name'] ?? meal['description']}');
                 // Attempt to delete from Health Connect if previously written
                 try {
                   await _ensureHealthConfigured();
-                  if (!kIsWeb && Platform.isAndroid && (meal['hcWritten'] == true)) {
+                  if (!kIsWeb &&
+                      Platform.isAndroid &&
+                      (meal['hcWritten'] == true)) {
                     final hs = meal['hcStart'];
                     final he = meal['hcEnd'];
-                    final start = hs is DateTime ? hs : (hs is String ? DateTime.tryParse(hs) : null);
-                    final end = he is DateTime ? he : (he is String ? DateTime.tryParse(he) : null);
+                    final start = hs is DateTime
+                        ? hs
+                        : (hs is String ? DateTime.tryParse(hs) : null);
+                    final end = he is DateTime
+                        ? he
+                        : (he is String ? DateTime.tryParse(he) : null);
                     if (start != null && end != null) {
                       // Ensure permissions and delete nutrition entries in the same timespan
-                      await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
-                      await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
+                      await _health.requestAuthorization(
+                          [HealthDataType.NUTRITION],
+                          permissions: [HealthDataAccess.READ_WRITE]);
+                      await _health.delete(
+                          type: HealthDataType.NUTRITION,
+                          startTime: start,
+                          endTime: end);
                     }
                   }
                 } catch (e, st) {
@@ -3505,7 +4015,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   final before = _history.length;
                   final removed = _removeMealEverywhere(meal);
                   final after = _history.length;
-                  debugPrint('[delete] Removed $removed entries; size $before -> $after');
+                  debugPrint(
+                      '[delete] Removed $removed entries; size $before -> $after');
                 });
                 await _saveHistory();
               },
@@ -3527,19 +4038,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }) {
     final scheme = Theme.of(context).colorScheme;
     final isEnabled = onPressed != null;
-    
+
     // Responsive design based on screen width and text scale factor
     final mediaQuery = MediaQuery.of(context);
     final screenWidth = mediaQuery.size.width;
     final textScaleFactor = mediaQuery.textScaleFactor;
-    
+
     // Calculate responsive dimensions
     final double buttonHeight;
     final double iconSize;
     final double fontSize;
     final EdgeInsets padding;
     final double borderRadius;
-    
+
     if (screenWidth < 320) {
       // Very small screens (old phones) - increased height for text visibility
       buttonHeight = 56.0;
@@ -3569,19 +4080,21 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 8);
       borderRadius = 18.0;
     }
-    
+
     // Adjust for accessibility text scaling but keep it reasonable
     final adjustedFontSize = (fontSize * textScaleFactor.clamp(0.8, 1.3));
     final adjustedIconSize = (iconSize * textScaleFactor.clamp(0.8, 1.2));
     final adjustedHeight = buttonHeight * textScaleFactor.clamp(0.9, 1.2);
-    
+
     return Container(
       height: adjustedHeight,
       decoration: BoxDecoration(
         color: isEnabled ? color.withOpacity(0.1) : scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
-          color: isEnabled ? color.withOpacity(0.3) : scheme.outline.withOpacity(0.2),
+          color: isEnabled
+              ? color.withOpacity(0.3)
+              : scheme.outline.withOpacity(0.2),
         ),
       ),
       child: Material(
@@ -3598,7 +4111,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               children: [
                 Icon(
                   icon,
-                  color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                  color: isEnabled
+                      ? color
+                      : scheme.onSurfaceVariant.withOpacity(0.5),
                   size: adjustedIconSize,
                 ),
                 SizedBox(height: screenWidth < 360 ? 3 : 4),
@@ -3609,7 +4124,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       style: TextStyle(
                         fontSize: adjustedFontSize,
                         fontWeight: FontWeight.w500,
-                        color: isEnabled ? color : scheme.onSurfaceVariant.withOpacity(0.5),
+                        color: isEnabled
+                            ? color
+                            : scheme.onSurfaceVariant.withOpacity(0.5),
                       ),
                       textAlign: TextAlign.center,
                       maxLines: 1,
@@ -3628,7 +4145,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Build queue area widget
   Widget _buildQueueArea() {
     final scheme = Theme.of(context).colorScheme;
-    
+
     if (_queue.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(16),
@@ -3642,12 +4159,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           children: [
             Icon(Icons.queue_outlined, color: scheme.onSurfaceVariant),
             const SizedBox(width: 12),
-            Text(S.of(context).queueEmpty, style: TextStyle(color: scheme.onSurfaceVariant)),
+            Text(S.of(context).queueEmpty,
+                style: TextStyle(color: scheme.onSurfaceVariant)),
           ],
         ),
       );
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -3666,9 +4184,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               Text(
                 S.of(context).processingQueue,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
@@ -3682,19 +4200,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               final hasError = status == 'error';
               final imgPath = job['imagePath']?.toString();
               final hasImage = imgPath != null && imgPath.isNotEmpty;
-              
+
               return Container(
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: hasError 
-                    ? scheme.errorContainer 
-                    : scheme.primaryContainer,
+                  color: hasError
+                      ? scheme.errorContainer
+                      : scheme.primaryContainer,
                   border: Border.all(
-                    color: hasError 
-                      ? scheme.error 
-                      : (isProcessing ? scheme.primary : scheme.outline),
+                    color: hasError
+                        ? scheme.error
+                        : (isProcessing ? scheme.primary : scheme.outline),
                     width: isProcessing ? 2 : 1,
                   ),
                 ),
@@ -3714,9 +4232,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     else
                       Icon(
                         hasError ? Icons.error : Icons.fastfood,
-                        color: hasError 
-                          ? scheme.onErrorContainer 
-                          : scheme.onPrimaryContainer,
+                        color: hasError
+                            ? scheme.onErrorContainer
+                            : scheme.onPrimaryContainer,
                         size: 24,
                       ),
                     // Loading animation overlay
@@ -3726,7 +4244,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         height: 50,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(scheme.primary),
                         ),
                       ),
                   ],
@@ -3744,23 +4263,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (!_mealBuilderActive || _currentMealResults.isEmpty) {
       return const SizedBox.shrink();
     }
-    
+
     final scheme = Theme.of(context).colorScheme;
     final s = S.of(context);
-    
+
     // Calculate totals
     int totalKcal = 0;
     int totalCarbs = 0;
     int totalProtein = 0;
     int totalFat = 0;
-    
+
     for (final result in _currentMealResults) {
       totalKcal += (result['kcal'] as int?) ?? 0;
       totalCarbs += (result['carbs'] as int?) ?? 0;
       totalProtein += (result['protein'] as int?) ?? 0;
       totalFat += (result['fat'] as int?) ?? 0;
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -3776,9 +4295,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           Text(
             '${S.of(context).totalLabel}:',
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3786,13 +4305,20 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  _CompactPill(label: "$totalKcal ${s.kcalSuffix}", color: Colors.redAccent),
+                  _CompactPill(
+                      label: "$totalKcal ${s.kcalSuffix}",
+                      color: Colors.redAccent),
                   const SizedBox(width: 6),
-                  _CompactPill(label: "$totalCarbs ${s.carbsSuffix}", color: _carbsColor(context)),
+                  _CompactPill(
+                      label: "$totalCarbs ${s.carbsSuffix}",
+                      color: _carbsColor(context)),
                   const SizedBox(width: 6),
-                  _CompactPill(label: "$totalProtein ${s.proteinSuffix}", color: Colors.teal),
+                  _CompactPill(
+                      label: "$totalProtein ${s.proteinSuffix}",
+                      color: Colors.teal),
                   const SizedBox(width: 6),
-                  _CompactPill(label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
+                  _CompactPill(
+                      label: "$totalFat ${s.fatSuffix}", color: Colors.purple),
                 ],
               ),
             ),
@@ -3807,7 +4333,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     if (!_mealBuilderActive || _currentMealResults.isEmpty) {
       return const SizedBox.shrink();
     }
-    
+
     return Column(
       children: _currentMealResults.map((result) {
         return Container(
@@ -3821,34 +4347,36 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   // Build individual result card
   Widget _buildResultCard(Map<String, dynamic> result) {
     final scheme = Theme.of(context).colorScheme;
-    final name = result['name'] ?? result['description'] ?? S.of(context).foodItem;
+    final name =
+        result['name'] ?? result['description'] ?? S.of(context).foodItem;
     final kcal = result['kcal'] as int?;
     final grams = result['grams'] as int?;
-    
-  return Card(
+
+    return Card(
       elevation: 2,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
-          leading: (result['image'] != null || (result['imagePath'] is String && (result['imagePath'] as String).isNotEmpty))
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: _buildImageWidget(
-                  result['image'] ?? result['imagePath'], 
-                  width: 48, 
-                  height: 48, 
-                  fit: BoxFit.cover
-                ),
-              )
-            : Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
+          leading: (result['image'] != null ||
+                  (result['imagePath'] is String &&
+                      (result['imagePath'] as String).isNotEmpty))
+              ? ClipRRect(
                   borderRadius: BorderRadius.circular(8),
+                  child: _buildImageWidget(
+                      result['image'] ?? result['imagePath'],
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover),
+                )
+              : Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.fastfood, color: scheme.onPrimaryContainer),
                 ),
-                child: Icon(Icons.fastfood, color: scheme.onPrimaryContainer),
-              ),
           title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(
             '${kcal ?? 0} kcal${grams != null ? ' • ${grams}g' : ''}',
@@ -3865,13 +4393,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   final updated = await showDialog<Map<String, dynamic>>(
                     context: context,
                     builder: (ctx) {
-                      final nameCtrl = TextEditingController(text: result['name']?.toString() ?? '');
-                      final kcalCtrl = TextEditingController(text: result['kcal']?.toString() ?? '');
-                      final carbsCtrl = TextEditingController(text: result['carbs']?.toString() ?? '');
-                      final proteinCtrl = TextEditingController(text: result['protein']?.toString() ?? '');
-                      final fatCtrl = TextEditingController(text: result['fat']?.toString() ?? '');
+                      final nameCtrl = TextEditingController(
+                          text: result['name']?.toString() ?? '');
+                      final kcalCtrl = TextEditingController(
+                          text: result['kcal']?.toString() ?? '');
+                      final carbsCtrl = TextEditingController(
+                          text: result['carbs']?.toString() ?? '');
+                      final proteinCtrl = TextEditingController(
+                          text: result['protein']?.toString() ?? '');
+                      final fatCtrl = TextEditingController(
+                          text: result['fat']?.toString() ?? '');
                       final int? defaultG = result['grams'] as int?;
-                      final gramsCtrl = TextEditingController(text: (defaultG?.toString() ?? ''));
+                      final gramsCtrl = TextEditingController(
+                          text: (defaultG?.toString() ?? ''));
                       bool linkValues = true;
                       final oldK = result['kcal'] as int?;
                       final oldC = result['carbs'] as int?;
@@ -3885,53 +4419,109 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                                TextField(
+                                    controller: nameCtrl,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).name)),
                                 const SizedBox(height: 8),
-                                TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                                TextField(
+                                    controller: gramsCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).weightLabel)),
                                 CheckboxListTile(
                                   contentPadding: EdgeInsets.zero,
                                   value: linkValues,
-                                  onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                  onChanged: (v) =>
+                                      setSB(() => linkValues = v ?? true),
                                   title: Text(S.of(context).linkValues),
                                 ),
-                                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                                TextField(
+                                    controller: kcalCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).kcalLabel)),
                                 const SizedBox(height: 8),
-                                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                                TextField(
+                                    controller: carbsCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).carbsLabel)),
                                 const SizedBox(height: 8),
-                                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                                TextField(
+                                    controller: proteinCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).proteinLabel)),
                                 const SizedBox(height: 8),
-                                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                                TextField(
+                                    controller: fatCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                        labelText: S.of(context).fatLabel)),
                               ],
                             ),
                           ),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
+                            TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: Text(S.of(context).cancel)),
                             FilledButton(
                               onPressed: () {
                                 int? newG = int.tryParse(gramsCtrl.text.trim());
                                 int? newK = int.tryParse(kcalCtrl.text.trim());
                                 int? newC = int.tryParse(carbsCtrl.text.trim());
-                                int? newP = int.tryParse(proteinCtrl.text.trim());
+                                int? newP =
+                                    int.tryParse(proteinCtrl.text.trim());
                                 int? newF = int.tryParse(fatCtrl.text.trim());
                                 if (linkValues) {
                                   double? factor;
-                                  if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                  if (oldC != null &&
+                                      newC != null &&
+                                      oldC > 0 &&
+                                      newC != oldC) {
                                     factor = newC / oldC;
-                                  } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                  } else if (oldP != null &&
+                                      newP != null &&
+                                      oldP > 0 &&
+                                      newP != oldP) {
                                     factor = newP / oldP;
-                                  } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                  } else if (oldF != null &&
+                                      newF != null &&
+                                      oldF > 0 &&
+                                      newF != oldF) {
                                     factor = newF / oldF;
-                                  } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                  } else if (oldK != null &&
+                                      newK != null &&
+                                      oldK > 0 &&
+                                      newK != oldK) {
                                     factor = newK / oldK;
-                                  } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
+                                  } else if (newG != null &&
+                                      oldG != null &&
+                                      oldG > 0 &&
+                                      newG != oldG) {
                                     factor = newG / oldG;
                                   }
                                   if (factor != null) {
-                                    if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
-                                    if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
-                                    if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
-                                    if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
-                                    if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                    if ((newG == null || newG == oldG) &&
+                                        oldG != null)
+                                      newG = (oldG * factor).round();
+                                    if (newK == null || newK == oldK)
+                                      newK = oldK != null
+                                          ? (oldK * factor).round()
+                                          : null;
+                                    if (newC == null || newC == oldC)
+                                      newC = oldC != null
+                                          ? (oldC * factor).round()
+                                          : null;
+                                    if (newP == null || newP == oldP)
+                                      newP = oldP != null
+                                          ? (oldP * factor).round()
+                                          : null;
+                                    if (newF == null || newF == oldF)
+                                      newF = oldF != null
+                                          ? (oldF * factor).round()
+                                          : null;
                                   }
                                 }
                                 Navigator.pop(ctx, {
@@ -3952,8 +4542,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   );
                   if (updated != null) {
                     setState(() {
-                      if ((updated['name'] as String?)?.isNotEmpty == true) result['name'] = updated['name'];
-                      if (updated['grams'] != null) result['grams'] = updated['grams'];
+                      if ((updated['name'] as String?)?.isNotEmpty == true)
+                        result['name'] = updated['name'];
+                      if (updated['grams'] != null)
+                        result['grams'] = updated['grams'];
                       result['kcal'] = updated['kcal'];
                       result['carbs'] = updated['carbs'];
                       result['protein'] = updated['protein'];
@@ -3979,7 +4571,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     final p = result['protein'] as int?;
                     final f = result['fat'] as int?;
                     final g = result['grams'] as int?;
-                    if (k == null && c == null && p == null && f == null && g == null) {
+                    if (k == null &&
+                        c == null &&
+                        p == null &&
+                        f == null &&
+                        g == null) {
                       return const SizedBox.shrink();
                     }
                     return Padding(
@@ -3989,15 +4585,30 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         runSpacing: 4,
                         children: [
                           if (k != null)
-                            _Pill(icon: Icons.local_fire_department, label: '$k ${S.of(context).kcalSuffix}', color: Colors.redAccent),
+                            _Pill(
+                                icon: Icons.local_fire_department,
+                                label: '$k ${S.of(context).kcalSuffix}',
+                                color: Colors.redAccent),
                           if (c != null)
-                            _Pill(icon: Icons.grain, label: '$c ${S.of(context).carbsSuffix}', color: _carbsColor(context)),
+                            _Pill(
+                                icon: Icons.grain,
+                                label: '$c ${S.of(context).carbsSuffix}',
+                                color: _carbsColor(context)),
                           if (p != null)
-                            _Pill(icon: Icons.egg_alt, label: '$p ${S.of(context).proteinSuffix}', color: Colors.teal),
+                            _Pill(
+                                icon: Icons.egg_alt,
+                                label: '$p ${S.of(context).proteinSuffix}',
+                                color: Colors.teal),
                           if (f != null)
-                            _Pill(icon: Icons.blur_on, label: '$f ${S.of(context).fatSuffix}', color: Colors.purple),
+                            _Pill(
+                                icon: Icons.blur_on,
+                                label: '$f ${S.of(context).fatSuffix}',
+                                color: Colors.purple),
                           if (g != null)
-                            _Pill(icon: Icons.scale, label: '${g} g', color: Theme.of(context).colorScheme.primary),
+                            _Pill(
+                                icon: Icons.scale,
+                                label: '${g} g',
+                                color: Theme.of(context).colorScheme.primary),
                         ],
                       ),
                     );
@@ -4018,7 +4629,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                         icon: const Icon(Icons.remove_circle_outline, size: 16),
                         label: Text(S.of(context).remove),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
                         ),
                       ),
                     ],
@@ -4054,10 +4666,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               ),
             ),
             const SizedBox(height: 20),
-            Text(s.addManuallyTitle, style: Theme.of(context).textTheme.titleLarge),
+            Text(s.addManuallyTitle,
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 20),
             ListTile(
-              leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+              leading: Icon(Icons.edit,
+                  color: Theme.of(context).colorScheme.primary),
               title: Text(s.addManual),
               subtitle: Text(s.describeMeal),
               onTap: () {
@@ -4075,13 +4689,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   Widget _buildMainTab() {
     final s = S.of(context);
     final scheme = Theme.of(context).colorScheme;
-    
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-
-
           // Main input card with modern chat-like design
           Container(
             decoration: BoxDecoration(
@@ -4106,7 +4718,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     decoration: BoxDecoration(
                       color: scheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(28),
-                      border: Border.all(color: scheme.outline.withOpacity(0.2)),
+                      border:
+                          Border.all(color: scheme.outline.withOpacity(0.2)),
                     ),
                     child: Row(
                       children: [
@@ -4118,7 +4731,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               labelText: s.describeMeal,
                               hintText: s.describeMealHint,
                               border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 16),
                               labelStyle: TextStyle(color: scheme.primary),
                             ),
                           ),
@@ -4130,7 +4744,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           height: 40,
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [scheme.primary, scheme.primary.withOpacity(0.8)],
+                              colors: [
+                                scheme.primary,
+                                scheme.primary.withOpacity(0.8)
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -4148,7 +4765,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             shape: const CircleBorder(),
                             child: InkWell(
                               customBorder: const CircleBorder(),
-                              onTap: (_loading && !_queueMode) ? null : _sendOrQueue,
+                              onTap: (_loading && !_queueMode)
+                                  ? null
+                                  : _sendOrQueue,
                               child: Center(
                                 child: _loading && !_queueMode
                                     ? SizedBox(
@@ -4156,7 +4775,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                         height: 16,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                  scheme.onPrimary),
                                         ),
                                       )
                                     : Icon(
@@ -4180,7 +4801,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       decoration: BoxDecoration(
                         color: scheme.primaryContainer.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+                        border:
+                            Border.all(color: scheme.primary.withOpacity(0.2)),
                       ),
                       child: Column(
                         children: [
@@ -4188,7 +4810,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             children: [
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
-                                child: _buildImageWidget(_image!, width: 50, height: 50, fit: BoxFit.cover),
+                                child: _buildImageWidget(_image!,
+                                    width: 50, height: 50, fit: BoxFit.cover),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -4209,14 +4832,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                           'Ready to upload. Please click on ',
                                           style: TextStyle(
                                             fontSize: 11,
-                                            color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                            color: scheme.onPrimaryContainer
+                                                .withOpacity(0.8),
                                           ),
                                         ),
                                         Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 4, vertical: 1),
                                           decoration: BoxDecoration(
-                                            color: scheme.primary.withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(3),
+                                            color:
+                                                scheme.primary.withOpacity(0.2),
+                                            borderRadius:
+                                                BorderRadius.circular(3),
                                           ),
                                           child: Icon(
                                             Icons.send_rounded,
@@ -4229,7 +4856,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                             ' or add more description',
                                             style: TextStyle(
                                               fontSize: 11,
-                                              color: scheme.onPrimaryContainer.withOpacity(0.8),
+                                              color: scheme.onPrimaryContainer
+                                                  .withOpacity(0.8),
                                             ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -4241,9 +4869,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               ),
                               IconButton(
                                 onPressed: () => setState(() => _image = null),
-                                icon: Icon(Icons.close, color: scheme.onPrimaryContainer),
+                                icon: Icon(Icons.close,
+                                    color: scheme.onPrimaryContainer),
                                 style: IconButton.styleFrom(
-                                  backgroundColor: scheme.surface.withOpacity(0.8),
+                                  backgroundColor:
+                                      scheme.surface.withOpacity(0.8),
                                 ),
                               ),
                             ],
@@ -4267,7 +4897,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           color: scheme.primary,
                         ),
                       ),
-                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      SizedBox(
+                          width:
+                              MediaQuery.of(context).size.width < 360 ? 8 : 12),
                       // Gallery button
                       Expanded(
                         child: _buildCompactActionButton(
@@ -4277,31 +4909,38 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           color: scheme.secondary,
                         ),
                       ),
-                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
-                       // Barcode button
-                       Expanded(
-                         child: _buildCompactActionButton(
-                           icon: Icons.qr_code_scanner,
-                           label: S.of(context).scanBarcode,
-                           onPressed: (canUseCamera || _isMockMode) ? _scanBarcode : null,
-                           color: scheme.tertiary,
-                         ),
-                       ),
-                      SizedBox(width: MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      SizedBox(
+                          width:
+                              MediaQuery.of(context).size.width < 360 ? 8 : 12),
+                      // Barcode button
+                      Expanded(
+                        child: _buildCompactActionButton(
+                          icon: Icons.qr_code_scanner,
+                          label: S.of(context).scanBarcode,
+                          onPressed: (canUseCamera || _isMockMode)
+                              ? _scanBarcode
+                              : null,
+                          color: scheme.tertiary,
+                        ),
+                      ),
+                      SizedBox(
+                          width:
+                              MediaQuery.of(context).size.width < 360 ? 8 : 12),
                       // Three-dot menu for manual adding with responsive sizing
                       Builder(
                         builder: (context) {
                           final screenWidth = MediaQuery.of(context).size.width;
                           final buttonSize = screenWidth < 360 ? 48.0 : 56.0;
                           final iconSize = screenWidth < 360 ? 20.0 : 24.0;
-                          
+
                           return Container(
                             width: buttonSize,
                             height: buttonSize,
                             decoration: BoxDecoration(
                               color: scheme.surfaceContainerHigh,
                               shape: BoxShape.circle,
-                              border: Border.all(color: scheme.outline.withOpacity(0.2)),
+                              border: Border.all(
+                                  color: scheme.outline.withOpacity(0.2)),
                             ),
                             child: Material(
                               color: Colors.transparent,
@@ -4321,8 +4960,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       ),
                     ],
                   ),
-
-
                 ],
               ),
             ),
@@ -4339,8 +4976,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
           // Result cards (only in meal builder mode)
           _buildResultCards(),
-
-
         ],
       ),
     );
@@ -4355,23 +4990,32 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final product = await _fetchOffProduct(code);
     if (product == null) {
       if (!mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).productNotFound)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(S.of(context).productNotFound)));
       return;
     }
     // Ask user quantity: empty for full package, or custom weight
     final qty = await _askQuantity(defaultServing: product.servingSizeGrams);
     if (!mounted) return;
-    final grams = qty?.trim().isEmpty == true ? product.servingSizeGrams : int.tryParse(qty ?? '');
+    final grams = qty?.trim().isEmpty == true
+        ? product.servingSizeGrams
+        : int.tryParse(qty ?? '');
     // Optionally download OFF product image and persist locally
     String? persistedImagePath;
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isLinux || Platform.isMacOS || Platform.isWindows)) {
+    if (!kIsWeb &&
+        (Platform.isAndroid ||
+            Platform.isIOS ||
+            Platform.isLinux ||
+            Platform.isMacOS ||
+            Platform.isWindows)) {
       final url = product.imageUrl;
       if (url != null && url.isNotEmpty) {
         try {
           final res = await http.get(Uri.parse(url));
           if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
             final dir = await getApplicationDocumentsDirectory();
-            final fname = 'off_${code}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+            final fname =
+                'off_${code}_${DateTime.now().millisecondsSinceEpoch}.jpg';
             final file = File('${dir.path}/$fname');
             await file.writeAsBytes(res.bodyBytes);
             persistedImagePath = file.path;
@@ -4387,16 +5031,16 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'Carbs': '${scaled.carbs?.toStringAsFixed(0) ?? '-'} g',
       'Proteins': '${scaled.protein?.toStringAsFixed(0) ?? '-'} g',
       'Fats': '${scaled.fat?.toStringAsFixed(0) ?? '-'} g',
-  if (grams != null) 'Weight (g)': '${grams} g',
+      if (grams != null) 'Weight (g)': '${grams} g',
     });
     final newMeal = {
       'image': null,
       'imagePath': persistedImagePath,
-  'description': product.name ?? S.of(context).packagedFood,
+      'description': product.name ?? S.of(context).packagedFood,
       'name': product.name,
       'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
       'structured': localizedStructured,
-  'grams': grams,
+      'grams': grams,
       'kcal': scaled.kcal?.round(),
       'carbs': scaled.carbs?.round(),
       'protein': scaled.protein?.round(),
@@ -4432,7 +5076,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           }
         });
       }
-
     }
     // Optionally, write to Health Connect if desired
     try {
@@ -4441,11 +5084,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       final carbs = scaled.carbs?.round();
       final protein = scaled.protein?.round();
       final fat = scaled.fat?.round();
-      if ((kcal != null || carbs != null || protein != null || fat != null) && !kIsWeb && Platform.isAndroid) {
+      if ((kcal != null || carbs != null || protein != null || fat != null) &&
+          !kIsWeb &&
+          Platform.isAndroid) {
         final status = await _health.getHealthConnectSdkStatus();
         if (mounted) setState(() => _hcSdkStatus = status);
         if (status == HealthConnectSdkStatus.sdkAvailable) {
-          final ok = await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
+          final ok = await _health.requestAuthorization(
+              [HealthDataType.NUTRITION],
+              permissions: [HealthDataAccess.READ_WRITE]);
           if (ok) {
             final start = DateTime.now();
             final end = start.add(const Duration(minutes: 1));
@@ -4493,8 +5140,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: Text(s.save)),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(s.cancel)),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: Text(s.save)),
         ],
       ),
     );
@@ -4525,7 +5175,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
     try {
       // Open Food Facts public API (no key required); "run the api on the device" interpreted as direct device-side HTTP call
-      final uri = Uri.parse('https://world.openfoodfacts.org/api/v2/product/$barcode.json');
+      final uri = Uri.parse(
+          'https://world.openfoodfacts.org/api/v2/product/$barcode.json');
       final res = await http.get(uri);
       if (res.statusCode != 200) return null;
       final jsonMap = json.decode(res.body);
@@ -4540,7 +5191,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final s = S.of(context);
     final todayKcal = _todayKcal();
     final todayCarbs = _todayCarbs();
-    final pct = _dailyLimit == 0 ? 0.0 : (todayKcal / _dailyLimit).clamp(0.0, 2.0);
+    final pct =
+        _dailyLimit == 0 ? 0.0 : (todayKcal / _dailyLimit).clamp(0.0, 2.0);
     Color barColor;
     if (pct < 0.7) {
       barColor = Colors.green;
@@ -4548,9 +5200,10 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       barColor = Colors.orange;
     } else {
       final over = (pct - 1.0).clamp(0.0, 1.0);
-      barColor = Color.lerp(Colors.red.shade600, Colors.red.shade900, over) ?? Colors.red;
+      barColor = Color.lerp(Colors.red.shade600, Colors.red.shade900, over) ??
+          Colors.red;
     }
-  return SingleChildScrollView(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4561,9 +5214,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(s.dailyIntake, style: Theme.of(context).textTheme.titleLarge),
+                  Text(s.dailyIntake,
+                      style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
-                  Text('${s.today}: $todayKcal / $_dailyLimit ${s.kcalSuffix} • $todayCarbs ${s.carbsSuffix}'),
+                  Text(
+                      '${s.today}: $todayKcal / $_dailyLimit ${s.kcalSuffix} • $todayCarbs ${s.carbsSuffix}'),
                   const SizedBox(height: 12),
                   _ProgressBar(value: pct.clamp(0.0, 1.5), color: barColor),
                   const SizedBox(height: 16),
@@ -4597,7 +5252,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       children: [
                         const Icon(Icons.local_fire_department),
                         const SizedBox(width: 8),
-                        Expanded(child: Text(s.burnedTodayTitle, style: Theme.of(context).textTheme.titleLarge)),
+                        Expanded(
+                            child: Text(s.burnedTodayTitle,
+                                style: Theme.of(context).textTheme.titleLarge)),
                         IconButton(
                           tooltip: s.burnedHelp,
                           onPressed: () {
@@ -4607,7 +5264,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                 title: Text(s.burnedTodayTitle),
                                 content: Text(s.burnedHelpText),
                                 actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok)),
+                                  TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: Text(s.ok)),
                                 ],
                               ),
                             );
@@ -4618,7 +5277,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           tooltip: s.refreshBurned,
                           onPressed: _loadingBurned ? null : _loadTodayBurned,
                           icon: _loadingBurned
-                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.refresh),
                         ),
                       ],
@@ -4632,17 +5295,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     _ProgressBar(
                       value: todayKcal <= 0 || _todayTotalBurnedKcal == null
                           ? 0
-                          : (_todayTotalBurnedKcal! / todayKcal).clamp(0.0, 1.5),
+                          : (_todayTotalBurnedKcal! / todayKcal)
+                              .clamp(0.0, 1.5),
                       color: Colors.blueAccent,
                     ),
                     const SizedBox(height: 12),
                     Builder(builder: (_) {
                       final burned = _todayTotalBurnedKcal?.round() ?? 0;
-                      final net = todayKcal - burned; // positive -> surplus, negative -> deficit
+                      final net = todayKcal -
+                          burned; // positive -> surplus, negative -> deficit
                       final isSurplus = net > 0;
-                      final label = isSurplus ? s.surplusLabel : (net < 0 ? s.deficitLabel : s.netKcalLabel);
+                      final label = isSurplus
+                          ? s.surplusLabel
+                          : (net < 0 ? s.deficitLabel : s.netKcalLabel);
                       final display = net == 0 ? '0' : net.abs().toString();
-                      return Text('${s.netKcalLabel}: ${isSurplus ? '+' : (net < 0 ? '-' : '')}$display ${s.kcalSuffix} • $label');
+                      return Text(
+                          '${s.netKcalLabel}: ${isSurplus ? '+' : (net < 0 ? '-' : '')}$display ${s.kcalSuffix} • $label');
                     }),
                   ],
                 ),
@@ -4659,34 +5327,46 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.favorite, color: Theme.of(context).colorScheme.primary),
+                        Icon(Icons.favorite,
+                            color: Theme.of(context).colorScheme.primary),
                         const SizedBox(width: 8),
-                        Expanded(child: Text(s.healthConnect, style: Theme.of(context).textTheme.titleLarge)),
+                        Expanded(
+                            child: Text(s.healthConnect,
+                                style: Theme.of(context).textTheme.titleLarge)),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
                         Icon(
-                          _healthAuthorized == true ? Icons.verified_user : Icons.report_gmailerrorred,
-                          color: _healthAuthorized == true ? Colors.green : Colors.orange,
+                          _healthAuthorized == true
+                              ? Icons.verified_user
+                              : Icons.report_gmailerrorred,
+                          color: _healthAuthorized == true
+                              ? Colors.green
+                              : Colors.orange,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _healthAuthorized == null
                                 ? s.hcUnknown
-                                : (_healthAuthorized == true ? s.hcAuthorized : s.hcNotAuthorized),
+                                : (_healthAuthorized == true
+                                    ? s.hcAuthorized
+                                    : s.hcNotAuthorized),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     if (_hcSdkStatus != null)
-                      Text('HC SDK: ${_hcSdkStatus}', style: Theme.of(context).textTheme.bodySmall),
+                      Text('HC SDK: ${_hcSdkStatus}',
+                          style: Theme.of(context).textTheme.bodySmall),
                     if (_healthLastError != null) ...[
                       const SizedBox(height: 6),
-                      Text('${s.lastError}: $_healthLastError', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                      Text('${s.lastError}: $_healthLastError',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
                     ],
                     const SizedBox(height: 12),
                     Wrap(
@@ -4703,11 +5383,27 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           icon: const Icon(Icons.lock_open),
                           label: Text(s.grantPermissions),
                         ),
-                        if (_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailable || _hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired)
+                        if (_hcSdkStatus ==
+                                HealthConnectSdkStatus.sdkUnavailable ||
+                            _hcSdkStatus ==
+                                HealthConnectSdkStatus
+                                    .sdkUnavailableProviderUpdateRequired)
                           FilledButton.icon(
-                            onPressed: () async { try { await _health.installHealthConnect(); } catch (e) { if (mounted) setState(() => _healthLastError = e.toString()); } },
+                            onPressed: () async {
+                              try {
+                                await _health.installHealthConnect();
+                              } catch (e) {
+                                if (mounted)
+                                  setState(
+                                      () => _healthLastError = e.toString());
+                              }
+                            },
                             icon: const Icon(Icons.download_rounded),
-                            label: Text(_hcSdkStatus == HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired ? (s.updateHc) : (s.installHc)),
+                            label: Text(_hcSdkStatus ==
+                                    HealthConnectSdkStatus
+                                        .sdkUnavailableProviderUpdateRequired
+                                ? (s.updateHc)
+                                : (s.installHc)),
                           ),
                       ],
                     ),
@@ -4753,7 +5449,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   children: [
                     Expanded(
                       child: Text(
-                        (meal['name'] as String?)?.isNotEmpty == true ? meal['name'] : (meal['isGroup'] == true ? S.of(context).meal : S.of(context).mealDetails),
+                        (meal['name'] as String?)?.isNotEmpty == true
+                            ? meal['name']
+                            : (meal['isGroup'] == true
+                                ? S.of(context).meal
+                                : S.of(context).mealDetails),
                         style: Theme.of(context).textTheme.titleLarge,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -4763,9 +5463,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                       final dt = _asDateTime(meal['time']);
                       if (dt == null) return const SizedBox.shrink();
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
@@ -4777,15 +5480,19 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   ],
                 ),
                 const SizedBox(height: 12),
-                if (meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty)) ...[
+                if (meal['image'] != null ||
+                    (meal['imagePath'] is String &&
+                        (meal['imagePath'] as String).isNotEmpty)) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: _buildImageWidget(meal['image'] ?? meal['imagePath'], height: 220, fit: BoxFit.cover),
+                    child: _buildImageWidget(meal['image'] ?? meal['imagePath'],
+                        height: 220, fit: BoxFit.cover),
                   ),
                   const SizedBox(height: 8),
                 ],
                 if (meal['description'] != null)
-                  Text(meal['description'], style: Theme.of(context).textTheme.titleMedium),
+                  Text(meal['description'],
+                      style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 _FormattedResultCard(resultText: meal['result'] ?? ''),
                 if (meal['isGroup'] == true && meal['children'] is List) ...[
@@ -4794,10 +5501,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(S.of(context).itemsInMeal((meal['children'] as List).length), style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                            S
+                                .of(context)
+                                .itemsInMeal((meal['children'] as List).length),
+                            style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 8),
-                        ...((meal['children'] as List).cast<Map<String, dynamic>>()).map((child) {
-                          final name = child['name'] ?? child['description'] ?? S.of(context).noDescription;
+                        ...((meal['children'] as List)
+                                .cast<Map<String, dynamic>>())
+                            .map((child) {
+                          final name = child['name'] ??
+                              child['description'] ??
+                              S.of(context).noDescription;
                           final kcal = child['kcal'] as int?;
                           final carbs = child['carbs'] as int?;
                           final protein = child['protein'] as int?;
@@ -4806,7 +5521,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           final dt = _asDateTime(child['time']);
                           String? subtitle;
                           if (dt != null && kcal != null) {
-                            subtitle = '${_formatTimeShort(dt)} • ${kcal} ${S.of(context).kcalSuffix}';
+                            subtitle =
+                                '${_formatTimeShort(dt)} • ${kcal} ${S.of(context).kcalSuffix}';
                           } else if (dt != null) {
                             subtitle = _formatTimeShort(dt);
                           } else if (kcal != null) {
@@ -4814,12 +5530,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           }
                           final imgPath = (child['image'] != null)
                               ? (child['image'].path as String)
-                              : (child['imagePath'] is String ? child['imagePath'] as String : null);
+                              : (child['imagePath'] is String
+                                  ? child['imagePath'] as String
+                                  : null);
                           return Card(
                             elevation: 0,
                             margin: const EdgeInsets.symmetric(vertical: 4),
                             child: Theme(
-                              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                              data: Theme.of(context)
+                                  .copyWith(dividerColor: Colors.transparent),
                               child: ExpansionTile(
                                 leading: imgPath != null && imgPath.isNotEmpty
                                     ? ClipRRect(
@@ -4833,48 +5552,84 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                       )
                                     : const Icon(Icons.fastfood),
                                 title: Text(name),
-                                subtitle: subtitle != null ? Text(subtitle) : null,
-                                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                subtitle:
+                                    subtitle != null ? Text(subtitle) : null,
+                                childrenPadding:
+                                    const EdgeInsets.fromLTRB(16, 0, 16, 16),
                                 children: [
                                   if (child['description'] != null)
                                     Padding(
-                                      padding: const EdgeInsets.only(bottom: 8.0),
-                                      child: Text(child['description'], style: Theme.of(context).textTheme.bodyMedium),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 8.0),
+                                      child: Text(child['description'],
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium),
                                     ),
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: [
                                       if (kcal != null)
-                                        _Pill(icon: Icons.local_fire_department, label: "$kcal ${S.of(context).kcalSuffix}", color: Colors.redAccent),
+                                        _Pill(
+                                            icon: Icons.local_fire_department,
+                                            label:
+                                                "$kcal ${S.of(context).kcalSuffix}",
+                                            color: Colors.redAccent),
                                       if (carbs != null)
-                                        _Pill(icon: Icons.grain, label: "$carbs ${S.of(context).carbsSuffix}", color: _carbsColor(context)),
+                                        _Pill(
+                                            icon: Icons.grain,
+                                            label:
+                                                "$carbs ${S.of(context).carbsSuffix}",
+                                            color: _carbsColor(context)),
                                       if (protein != null)
                                         const SizedBox(height: 4),
                                       if (protein != null)
-                                        _Pill(icon: Icons.egg_alt, label: "$protein ${S.of(context).proteinSuffix}", color: Colors.teal),
+                                        _Pill(
+                                            icon: Icons.egg_alt,
+                                            label:
+                                                "$protein ${S.of(context).proteinSuffix}",
+                                            color: Colors.teal),
                                       if (fat != null)
-                                        _Pill(icon: Icons.blur_on, label: "$fat ${S.of(context).fatSuffix}", color: Colors.purple),
+                                        _Pill(
+                                            icon: Icons.blur_on,
+                                            label:
+                                                "$fat ${S.of(context).fatSuffix}",
+                                            color: Colors.purple),
                                       if (grams != null)
-                                        _Pill(icon: Icons.scale, label: "$grams g", color: Theme.of(context).colorScheme.primary),
+                                        _Pill(
+                                            icon: Icons.scale,
+                                            label: "$grams g",
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary),
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  if (child['result'] is String && (child['result'] as String).trim().isNotEmpty)
-                                    _FormattedResultCard(resultText: child['result']),
+                                  if (child['result'] is String &&
+                                      (child['result'] as String)
+                                          .trim()
+                                          .isNotEmpty)
+                                    _FormattedResultCard(
+                                        resultText: child['result']),
                                   const SizedBox(height: 8),
                                   Align(
                                     alignment: Alignment.centerRight,
                                     child: OutlinedButton.icon(
-                                      icon: const Icon(Icons.remove_circle_outline),
+                                      icon: const Icon(
+                                          Icons.remove_circle_outline),
                                       label: Text(S.of(context).remove),
                                       onPressed: () async {
                                         setState(() {
-                                          (meal['children'] as List).remove(child);
-                                          final restored = Map<String, dynamic>.from(child);
+                                          (meal['children'] as List)
+                                              .remove(child);
+                                          final restored =
+                                              Map<String, dynamic>.from(child);
                                           restored.remove('isGroup');
                                           restored.remove('children');
-                                          restored['time'] = (restored['time'] is DateTime || restored['time'] is String)
+                                          restored['time'] = (restored['time']
+                                                      is DateTime ||
+                                                  restored['time'] is String)
                                               ? restored['time']
                                               : DateTime.now();
                                           _history.add(restored);
@@ -4882,12 +5637,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                         });
                                         setLocal(() {});
                                         await _saveHistory();
-                                        if ((meal['children'] as List).isEmpty && context.mounted) {
+                                        if ((meal['children'] as List)
+                                                .isEmpty &&
+                                            context.mounted) {
                                           final idx = _history.indexOf(meal);
                                           if (idx >= 0) {
                                             setState(() {
                                               _history.removeAt(idx);
-   
                                             });
                                             await _saveHistory();
                                           }
@@ -4922,19 +5678,34 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                   alignment: WrapAlignment.center,
                   children: [
                     if (meal['kcal'] != null)
-                      _Pill(icon: Icons.local_fire_department, label: "${meal['kcal']} ${S.of(context).kcalSuffix}", color: Colors.redAccent),
+                      _Pill(
+                          icon: Icons.local_fire_department,
+                          label: "${meal['kcal']} ${S.of(context).kcalSuffix}",
+                          color: Colors.redAccent),
                     if (meal['carbs'] != null)
                       _Pill(
                         icon: Icons.grain,
                         label: "${meal['carbs']} ${S.of(context).carbsSuffix}",
-                        color: Theme.of(context).brightness == Brightness.light ? Colors.orange : Colors.amber,
+                        color: Theme.of(context).brightness == Brightness.light
+                            ? Colors.orange
+                            : Colors.amber,
                       ),
                     if (meal['protein'] != null)
-                      _Pill(icon: Icons.egg_alt, label: "${meal['protein']} ${S.of(context).proteinSuffix}", color: Colors.teal),
+                      _Pill(
+                          icon: Icons.egg_alt,
+                          label:
+                              "${meal['protein']} ${S.of(context).proteinSuffix}",
+                          color: Colors.teal),
                     if (meal['fat'] != null)
-                      _Pill(icon: Icons.blur_on, label: "${meal['fat']} ${S.of(context).fatSuffix}", color: Colors.purple),
+                      _Pill(
+                          icon: Icons.blur_on,
+                          label: "${meal['fat']} ${S.of(context).fatSuffix}",
+                          color: Colors.purple),
                     if (meal['grams'] != null)
-                      _Pill(icon: Icons.scale, label: "${meal['grams']} g", color: Theme.of(context).colorScheme.primary),
+                      _Pill(
+                          icon: Icons.scale,
+                          label: "${meal['grams']} g",
+                          color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -4947,11 +5718,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           setState(() {
                             _mealBuilderActive = true;
                             _currentMealResults.clear();
-                            if (meal['isGroup'] == true && meal['children'] is List) {
+                            if (meal['isGroup'] == true &&
+                                meal['children'] is List) {
                               // If it's a group, add copies of all children to current results
                               final childrenCopies = (meal['children'] as List)
                                   .cast<Map<String, dynamic>>()
-                                  .map((child) => Map<String, dynamic>.from(child))
+                                  .map((child) =>
+                                      Map<String, dynamic>.from(child))
                                   .toList();
                               _currentMealResults.addAll(childrenCopies);
                             } else {
@@ -4969,7 +5742,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             final before = _history.length;
                             final removed = _removeMealEverywhere(meal);
                             final after = _history.length;
-                            debugPrint('[move-to-builder] Removed $removed entries; size $before -> $after');
+                            debugPrint(
+                                '[move-to-builder] Removed $removed entries; size $before -> $after');
                           });
                           await _saveHistory();
                           // Persist meal builder state too since builder was just activated
@@ -4977,9 +5751,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                             await _saveMealBuilderState();
                           }
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Meal builder activated - add more items!')));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text(
+                                    'Meal builder activated - add more items!')));
                             Navigator.pop(ctx);
-                            _tabController.animateTo(1); // Go to Main tab to add more
+                            _tabController
+                                .animateTo(1); // Go to Main tab to add more
                           }
                         },
                         child: Column(
@@ -4987,7 +5764,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           children: [
                             const Icon(Icons.add_circle_outline),
                             const SizedBox(height: 6),
-                            Text(S.of(context).addAnother, textAlign: TextAlign.center),
+                            Text(S.of(context).addAnother,
+                                textAlign: TextAlign.center),
                           ],
                         ),
                       ),
@@ -4996,25 +5774,37 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
-                          final updated = await showDialog<Map<String, dynamic>>(
+                          final updated =
+                              await showDialog<Map<String, dynamic>>(
                             context: context,
                             builder: (dCtx) {
-                              final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
-                              final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
-                              final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
-                              final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
-                              final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
+                              final nameCtrl = TextEditingController(
+                                  text: meal['name']?.toString() ?? '');
+                              final kcalCtrl = TextEditingController(
+                                  text: meal['kcal']?.toString() ?? '');
+                              final carbsCtrl = TextEditingController(
+                                  text: meal['carbs']?.toString() ?? '');
+                              final proteinCtrl = TextEditingController(
+                                  text: meal['protein']?.toString() ?? '');
+                              final fatCtrl = TextEditingController(
+                                  text: meal['fat']?.toString() ?? '');
                               // Prefill grams with AI-provided value or, for groups, the combined sum of children
                               int? defaultG = meal['grams'] as int?;
-                              if (defaultG == null && meal['isGroup'] == true && meal['children'] is List) {
+                              if (defaultG == null &&
+                                  meal['isGroup'] == true &&
+                                  meal['children'] is List) {
                                 int sum = 0;
                                 int count = 0;
                                 for (final c in (meal['children'] as List)) {
-                                  if (c is Map && c['grams'] is int) { sum += c['grams'] as int; count++; }
+                                  if (c is Map && c['grams'] is int) {
+                                    sum += c['grams'] as int;
+                                    count++;
+                                  }
                                 }
                                 if (count > 0 && sum > 0) defaultG = sum;
                               }
-                              final gramsCtrl = TextEditingController(text: defaultG?.toString() ?? '');
+                              final gramsCtrl = TextEditingController(
+                                  text: defaultG?.toString() ?? '');
                               bool linkValues = true;
                               final oldK = meal['kcal'] as int?;
                               final oldC = meal['carbs'] as int?;
@@ -5029,22 +5819,52 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                                        TextField(
+                                            controller: nameCtrl,
+                                            decoration: InputDecoration(
+                                                labelText: S.of(context).name)),
                                         const SizedBox(height: 8),
-                                        TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                                        TextField(
+                                            controller: gramsCtrl,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                                labelText:
+                                                    S.of(context).weightLabel)),
                                         CheckboxListTile(
                                           contentPadding: EdgeInsets.zero,
                                           value: linkValues,
-                                          onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                          onChanged: (v) => setSB(
+                                              () => linkValues = v ?? true),
                                           title: Text(S.of(context).linkValues),
                                         ),
-                                        TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                                        TextField(
+                                            controller: kcalCtrl,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                                labelText:
+                                                    S.of(context).kcalLabel)),
                                         const SizedBox(height: 8),
-                                        TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                                        TextField(
+                                            controller: carbsCtrl,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                                labelText:
+                                                    S.of(context).carbsLabel)),
                                         const SizedBox(height: 8),
-                                        TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                                        TextField(
+                                            controller: proteinCtrl,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                                labelText: S
+                                                    .of(context)
+                                                    .proteinLabel)),
                                         const SizedBox(height: 8),
-                                        TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                                        TextField(
+                                            controller: fatCtrl,
+                                            keyboardType: TextInputType.number,
+                                            decoration: InputDecoration(
+                                                labelText:
+                                                    S.of(context).fatLabel)),
                                       ],
                                     ),
                                   ),
@@ -5052,47 +5872,94 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                                     TextButton(
                                       onPressed: () {
                                         setSB(() {
-                                          nameCtrl.text = meal['name']?.toString() ?? '';
-                                          gramsCtrl.text = (defaultG?.toString() ?? '');
-                                          kcalCtrl.text = (meal['kcal']?.toString() ?? '');
-                                          carbsCtrl.text = (meal['carbs']?.toString() ?? '');
-                                          proteinCtrl.text = (meal['protein']?.toString() ?? '');
-                                          fatCtrl.text = (meal['fat']?.toString() ?? '');
+                                          nameCtrl.text =
+                                              meal['name']?.toString() ?? '';
+                                          gramsCtrl.text =
+                                              (defaultG?.toString() ?? '');
+                                          kcalCtrl.text =
+                                              (meal['kcal']?.toString() ?? '');
+                                          carbsCtrl.text =
+                                              (meal['carbs']?.toString() ?? '');
+                                          proteinCtrl.text =
+                                              (meal['protein']?.toString() ??
+                                                  '');
+                                          fatCtrl.text =
+                                              (meal['fat']?.toString() ?? '');
                                         });
                                       },
-                                      child: Text(S.of(context).restoreDefaults),
+                                      child:
+                                          Text(S.of(context).restoreDefaults),
                                     ),
-                                    TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(S.of(context).cancel)),
+                                    TextButton(
+                                        onPressed: () => Navigator.pop(dCtx),
+                                        child: Text(S.of(context).cancel)),
                                     FilledButton(
                                       onPressed: () {
-                                        int? newG = int.tryParse(gramsCtrl.text.trim());
-                                        int? newK = int.tryParse(kcalCtrl.text.trim());
-                                        int? newC = int.tryParse(carbsCtrl.text.trim());
-                                        int? newP = int.tryParse(proteinCtrl.text.trim());
-                                        int? newF = int.tryParse(fatCtrl.text.trim());
+                                        int? newG =
+                                            int.tryParse(gramsCtrl.text.trim());
+                                        int? newK =
+                                            int.tryParse(kcalCtrl.text.trim());
+                                        int? newC =
+                                            int.tryParse(carbsCtrl.text.trim());
+                                        int? newP = int.tryParse(
+                                            proteinCtrl.text.trim());
+                                        int? newF =
+                                            int.tryParse(fatCtrl.text.trim());
                                         if (linkValues) {
                                           double? factor;
-                                          if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                          if (oldC != null &&
+                                              newC != null &&
+                                              oldC > 0 &&
+                                              newC != oldC) {
                                             factor = newC / oldC;
-                                          } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                          } else if (oldP != null &&
+                                              newP != null &&
+                                              oldP > 0 &&
+                                              newP != oldP) {
                                             factor = newP / oldP;
-                                          } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                          } else if (oldF != null &&
+                                              newF != null &&
+                                              oldF > 0 &&
+                                              newF != oldF) {
                                             factor = newF / oldF;
-                                          } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                          } else if (oldK != null &&
+                                              newK != null &&
+                                              oldK > 0 &&
+                                              newK != oldK) {
                                             factor = newK / oldK;
-                                          } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
+                                          } else if (newG != null &&
+                                              oldG != null &&
+                                              oldG > 0 &&
+                                              newG != oldG) {
                                             factor = newG / oldG;
                                           }
                                           if (factor != null) {
-                                            if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
-                                            if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
-                                            if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
-                                            if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
-                                            if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                            if ((newG == null ||
+                                                    newG == oldG) &&
+                                                oldG != null)
+                                              newG = (oldG * factor).round();
+                                            if (newK == null || newK == oldK)
+                                              newK = oldK != null
+                                                  ? (oldK * factor).round()
+                                                  : null;
+                                            if (newC == null || newC == oldC)
+                                              newC = oldC != null
+                                                  ? (oldC * factor).round()
+                                                  : null;
+                                            if (newP == null || newP == oldP)
+                                              newP = oldP != null
+                                                  ? (oldP * factor).round()
+                                                  : null;
+                                            if (newF == null || newF == oldF)
+                                              newF = oldF != null
+                                                  ? (oldF * factor).round()
+                                                  : null;
                                           }
                                         }
                                         Navigator.pop(dCtx, {
-                                          'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
+                                          'name': nameCtrl.text.trim().isEmpty
+                                              ? null
+                                              : nameCtrl.text.trim(),
                                           'grams': newG,
                                           'kcal': newK,
                                           'carbs': newC,
@@ -5113,13 +5980,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               meal['grams'] = updated['grams'] ?? meal['grams'];
                               meal['kcal'] = updated['kcal'] ?? meal['kcal'];
                               meal['carbs'] = updated['carbs'] ?? meal['carbs'];
-                              meal['protein'] = updated['protein'] ?? meal['protein'];
+                              meal['protein'] =
+                                  updated['protein'] ?? meal['protein'];
                               meal['fat'] = updated['fat'] ?? meal['fat'];
                             });
                             await _saveHistory();
                             if (context.mounted) {
                               Navigator.pop(ctx);
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content:
+                                          Text(S.of(context).mealUpdated)));
                             }
                           }
                         },
@@ -5128,7 +5999,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           children: [
                             const Icon(Icons.edit_outlined),
                             const SizedBox(height: 6),
-                            Text(S.of(context).editMeal, textAlign: TextAlign.center),
+                            Text(S.of(context).editMeal,
+                                textAlign: TextAlign.center),
                           ],
                         ),
                       ),
@@ -5136,7 +6008,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+                        style: FilledButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.error),
                         onPressed: () async {
                           final ok = await showDialog<bool>(
                             context: context,
@@ -5144,22 +6018,43 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               title: Text(S.of(context).deleteItem),
                               content: Text(S.of(context).deleteConfirm),
                               actions: [
-                                TextButton(onPressed: () => Navigator.pop(dCtx, false), child: Text(S.of(context).cancel)),
-                                FilledButton(onPressed: () => Navigator.pop(dCtx, true), child: Text(S.of(context).delete)),
+                                TextButton(
+                                    onPressed: () => Navigator.pop(dCtx, false),
+                                    child: Text(S.of(context).cancel)),
+                                FilledButton(
+                                    onPressed: () => Navigator.pop(dCtx, true),
+                                    child: Text(S.of(context).delete)),
                               ],
                             ),
                           );
                           if (ok == true) {
                             try {
                               await _ensureHealthConfigured();
-                              if (!kIsWeb && Platform.isAndroid && (meal['hcWritten'] == true)) {
+                              if (!kIsWeb &&
+                                  Platform.isAndroid &&
+                                  (meal['hcWritten'] == true)) {
                                 final hs = meal['hcStart'];
                                 final he = meal['hcEnd'];
-                                final start = hs is DateTime ? hs : (hs is String ? DateTime.tryParse(hs) : null);
-                                final end = he is DateTime ? he : (he is String ? DateTime.tryParse(he) : null);
+                                final start = hs is DateTime
+                                    ? hs
+                                    : (hs is String
+                                        ? DateTime.tryParse(hs)
+                                        : null);
+                                final end = he is DateTime
+                                    ? he
+                                    : (he is String
+                                        ? DateTime.tryParse(he)
+                                        : null);
                                 if (start != null && end != null) {
-                                  await _health.requestAuthorization([HealthDataType.NUTRITION], permissions: [HealthDataAccess.READ_WRITE]);
-                                  await _health.delete(type: HealthDataType.NUTRITION, startTime: start, endTime: end);
+                                  await _health.requestAuthorization([
+                                    HealthDataType.NUTRITION
+                                  ], permissions: [
+                                    HealthDataAccess.READ_WRITE
+                                  ]);
+                                  await _health.delete(
+                                      type: HealthDataType.NUTRITION,
+                                      startTime: start,
+                                      endTime: end);
                                 }
                               }
                             } catch (e, st) {
@@ -5174,12 +6069,15 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                               final before = _history.length;
                               final removed = _removeMealEverywhere(meal);
                               final after = _history.length;
-                              debugPrint('[delete] Removed $removed entries; size $before -> $after');
+                              debugPrint(
+                                  '[delete] Removed $removed entries; size $before -> $after');
                             });
                             await _saveHistory();
                             if (context.mounted) {
                               Navigator.pop(ctx);
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).delete)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content: Text(S.of(context).delete)));
                             }
                           }
                         },
@@ -5188,7 +6086,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
                           children: [
                             const Icon(Icons.delete_outline),
                             const SizedBox(height: 6),
-                            Text(S.of(context).delete, textAlign: TextAlign.center),
+                            Text(S.of(context).delete,
+                                textAlign: TextAlign.center),
                           ],
                         ),
                       ),
@@ -5222,27 +6121,45 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: s.name)),
+                TextField(
+                    controller: nameCtrl,
+                    decoration: InputDecoration(labelText: s.name)),
                 const SizedBox(height: 8),
-                TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.weightLabel)),
+                TextField(
+                    controller: gramsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: s.weightLabel)),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   value: linkValues,
                   onChanged: (v) => setSB(() => linkValues = v ?? true),
                   title: Text(s.linkValues),
                 ),
-                TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.kcalLabel)),
+                TextField(
+                    controller: kcalCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: s.kcalLabel)),
                 const SizedBox(height: 8),
-                TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.carbsLabel)),
+                TextField(
+                    controller: carbsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: s.carbsLabel)),
                 const SizedBox(height: 8),
-                TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.proteinLabel)),
+                TextField(
+                    controller: proteinCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: s.proteinLabel)),
                 const SizedBox(height: 8),
-                TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: s.fatLabel)),
+                TextField(
+                    controller: fatCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: s.fatLabel)),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(s.cancel)),
+            TextButton(
+                onPressed: () => Navigator.pop(dCtx), child: Text(s.cancel)),
             FilledButton(
               onPressed: () {
                 if (nameCtrl.text.trim().isEmpty) {
@@ -5271,12 +6188,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'Carbs': data['carbs'] != null ? '${data['carbs']} g' : '-',
       'Proteins': data['protein'] != null ? '${data['protein']} g' : '-',
       'Fats': data['fat'] != null ? '${data['fat']} g' : '-',
-  if (data['grams'] != null) 'Weight (g)': '${data['grams']} g',
+      if (data['grams'] != null) 'Weight (g)': '${data['grams']} g',
     });
     final newMeal = {
       'image': null,
       'imagePath': null,
-  'description': data['name'] ?? S.of(context).packagedFood,
+      'description': data['name'] ?? S.of(context).packagedFood,
       'name': data['name'],
       'result': const JsonEncoder.withIndent('  ').convert(localizedStructured),
       'structured': localizedStructured,
@@ -5299,13 +6216,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         _pruneHistory();
       }
     });
-    
+
     if (!_mealBuilderActive) {
       await _saveHistory();
     }
 
     if (!mounted) return;
-    
+
     // Only switch to history tab and show popup in normal mode
     if (!_mealBuilderActive) {
       _tabController.animateTo(0);
@@ -5313,12 +6230,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         if (mounted) _showMealDetails(newMeal);
       });
     }
-  
   }
-
-
-
-
 
   void _toggleMealBuilder() {
     setState(() {
@@ -5334,22 +6246,23 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         _currentMealResults.clear();
       }
     });
-    
+
     // Save meal builder state to SharedPreferences so background service can check it
     _saveMealBuilderState();
   }
-  
+
   // Save meal builder state to SharedPreferences
   Future<void> _saveMealBuilderState() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('meal_builder_active', _mealBuilderActive);
-    
+
     if (_mealBuilderActive) {
       // Also save current meal results
       Map<String, dynamic> toJson(Map<String, dynamic> x) {
         return {
           'isGroup': x['isGroup'] == true,
-          'imagePath': (x['imagePath'] as String?) ?? (x['image'] is XFile ? (x['image'] as XFile).path : null),
+          'imagePath': (x['imagePath'] as String?) ??
+              (x['image'] is XFile ? (x['image'] as XFile).path : null),
           'description': x['description'],
           'name': x['name'],
           'result': x['result'],
@@ -5359,16 +6272,26 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'carbs': x['carbs'],
           'protein': x['protein'],
           'fat': x['fat'],
-          'time': (x['time'] is DateTime) ? (x['time'] as DateTime).toIso8601String() : x['time'],
-          'hcStart': (x['hcStart'] is DateTime) ? (x['hcStart'] as DateTime).toIso8601String() : x['hcStart'],
-          'hcEnd': (x['hcEnd'] is DateTime) ? (x['hcEnd'] as DateTime).toIso8601String() : x['hcEnd'],
+          'time': (x['time'] is DateTime)
+              ? (x['time'] as DateTime).toIso8601String()
+              : x['time'],
+          'hcStart': (x['hcStart'] is DateTime)
+              ? (x['hcStart'] as DateTime).toIso8601String()
+              : x['hcStart'],
+          'hcEnd': (x['hcEnd'] is DateTime)
+              ? (x['hcEnd'] as DateTime).toIso8601String()
+              : x['hcEnd'],
           'hcWritten': x['hcWritten'] == true,
-          if (x['children'] is List) 'children': (x['children'] as List).map((c) => toJson(Map<String, dynamic>.from(c))).toList(),
+          if (x['children'] is List)
+            'children': (x['children'] as List)
+                .map((c) => toJson(Map<String, dynamic>.from(c)))
+                .toList(),
         };
       }
-      
+
       final serializable = _currentMealResults.map((m) => toJson(m)).toList();
-      await prefs.setString('current_meal_results_json', json.encode(serializable));
+      await prefs.setString(
+          'current_meal_results_json', json.encode(serializable));
     }
   }
 
@@ -5381,10 +6304,22 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         final c = e['carbs'];
         final p = e['protein'];
         final f = e['fat'];
-        if (k is int) { sumK += k; hasK = true; }
-        if (c is int) { sumC += c; hasC = true; }
-        if (p is int) { sumP += p; hasP = true; }
-        if (f is int) { sumF += f; hasF = true; }
+        if (k is int) {
+          sumK += k;
+          hasK = true;
+        }
+        if (c is int) {
+          sumC += c;
+          hasC = true;
+        }
+        if (p is int) {
+          sumP += p;
+          hasP = true;
+        }
+        if (f is int) {
+          sumF += f;
+          hasF = true;
+        }
       }
     }
     group['kcal'] = hasK ? sumK : null;
@@ -5396,7 +6331,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   void _finishCurrentMeal() {
     if (_currentMealResults.isEmpty) return;
-    
+
     // Create a grouped meal from current results
     final group = <String, dynamic>{
       'isGroup': true,
@@ -5407,17 +6342,17 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
       'imagePath': _currentMealResults.first['imagePath'],
       'hcWritten': false,
     };
-    
+
     // Compute totals
     _recomputeGroupSums(group);
-    
+
     // Add to history
     setState(() {
       _history.add(group);
       _currentMealResults.clear();
       _pruneHistory();
     });
-    
+
     // Save and show feedback
     _saveHistory();
     _saveMealBuilderState(); // Also save meal builder state
@@ -5438,7 +6373,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
-  
+
   // Public wrapper methods for widgets
   DateTime? asDateTime(dynamic t) => _asDateTime(t);
   String formatTimeShort(DateTime t) => _formatTimeShort(t);
@@ -5490,9 +6425,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         } else if (value is Map) {
           out[nk] = walk(Map<String, dynamic>.from(value));
         } else if (value is List) {
-      out[nk] = value
-        .map((e) => e is Map ? walk(Map<String, dynamic>.from(e)) : e)
-        .toList();
+          out[nk] = value
+              .map((e) => e is Map ? walk(Map<String, dynamic>.from(e)) : e)
+              .toList();
         } else {
           out[nk] = value;
         }
@@ -5511,13 +6446,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           _history.removeAt(idx);
           final kids = (group['children'] as List).cast<Map<String, dynamic>>();
           _history.insertAll(idx, kids);
-
         });
       }
     }
   }
 
-  void _mergeMeals(Map<String, dynamic> source, Map<String, dynamic> target) async {
+  void _mergeMeals(
+      Map<String, dynamic> source, Map<String, dynamic> target) async {
     if (identical(source, target)) return;
     final tIdx = _history.indexOf(target);
     final sIdx = _history.indexOf(source);
@@ -5538,7 +6473,9 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           'isGroup': true,
           'name': S.of(context).meal,
           'time': target['time'],
-          'children': source['isGroup'] == true ? [target, ...(source['children'] as List? ?? const [])] : [target, source],
+          'children': source['isGroup'] == true
+              ? [target, ...(source['children'] as List? ?? const [])]
+              : [target, source],
           'image': target['image'],
           'imagePath': target['imagePath'],
           'hcWritten': false,
@@ -5552,5 +6489,4 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     });
     await _saveHistory();
   }
-
 }
