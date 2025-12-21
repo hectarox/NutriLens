@@ -17,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const uploadDir = path.resolve(process.cwd(), 'uploads');
 
-fs.mkdir(uploadDir, { recursive: true }).catch(() => {});
+fs.mkdir(uploadDir, { recursive: true }).catch(() => { });
 
 const apiKeys = (process.env.GEMINI_API_KEYS || '')
   .split(',')
@@ -118,7 +118,7 @@ async function buildInlineImagePart(uploadedFile) {
       const buffer = await fs.readFile(absolutePath);
       try {
         await fs.unlink(absolutePath);
-      } catch (_) {}
+      } catch (_) { }
       return {
         inlineData: {
           data: buffer.toString('base64'),
@@ -128,13 +128,13 @@ async function buildInlineImagePart(uploadedFile) {
     } catch (readError) {
       try {
         console.warn('Failed to read uploaded image file:', readError?.message ?? readError);
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
   try {
     console.warn('Uploaded image file not found on disk for inline upload.');
-  } catch (_) {}
+  } catch (_) { }
   return null;
 }
 
@@ -227,7 +227,7 @@ async function englishNormalizeWithFlash(ai, originalJsonish) {
   } catch (e) {
     try {
       console.warn('englishNormalizeWithFlash failed:', e?.message ?? e);
-    } catch (_) {}
+    } catch (_) { }
     return null;
   }
 }
@@ -244,8 +244,8 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-  const { file } = req;
-  const { message, lang } = req.body ?? {};
+    const { file } = req;
+    const { message, lang } = req.body ?? {};
     const acceptLangHeader = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
     const locale = (typeof lang === 'string' && lang.trim())
       ? lang.trim().toLowerCase()
@@ -269,7 +269,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
       } catch (imageError) {
         try {
           console.warn('Failed to prepare uploaded image:', imageError?.message ?? imageError);
-        } catch (_) {}
+        } catch (_) { }
       }
     }
 
@@ -304,15 +304,15 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     try {
       console.log('[AI] systemInstruction ->', systemInstructionText);
       console.log('[AI] user prompt ->', userPrompt);
-    } catch (_) {}
+    } catch (_) { }
 
-    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-3-flash';
 
     for (let i = 0; i < 10; i += 1) {
       const response = await ai.models.generateContent({
         model: modelName,
         contents,
-  systemInstruction,
+        systemInstruction,
         safetySettings,
         config: {
           ...generationDefaults,
@@ -329,7 +329,7 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
 
       try {
         console.log(`[AI][${modelName}][try ${i + 1}/10] raw: ${text}`);
-      } catch (_) {}
+      } catch (_) { }
 
       let data = null;
       if (text) {
@@ -481,7 +481,7 @@ async function logRequestIp(req) {
     const pool = await dbPoolPromise;
     await pool.query('INSERT INTO request_logs (ip) VALUES (?)', [ip]);
   } catch (e) {
-    try { console.warn('request ip log failed', e && e.message ? e.message : e); } catch (_) {}
+    try { console.warn('request ip log failed', e && e.message ? e.message : e); } catch (_) { }
   }
 }
 
@@ -687,16 +687,16 @@ app.get('/', requireAdmin, (req, res) => {
 app.post('/admin/invite', requireAdmin, async (req, res) => {
   try {
     const { username } = req.body || {};
-    if (!username || String(username).length < 3) return res.status(400).json({ ok:false, error:'username too short' });
+    if (!username || String(username).length < 3) return res.status(400).json({ ok: false, error: 'username too short' });
     const pool = await dbPoolPromise;
     // Generate temporary password
     const temp = Math.random().toString(36).slice(2, 10);
     const hash = await bcrypt.hash(temp, 10);
     await pool.query('INSERT INTO users (username, password_hash, force_password_reset) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE force_password_reset=VALUES(force_password_reset), password_hash=VALUES(password_hash)', [username, hash]);
-    res.json({ ok:true, username, temporaryPassword: temp });
+    res.json({ ok: true, username, temporaryPassword: temp });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'invite failed' });
+    res.status(500).json({ ok: false, error: 'invite failed' });
   }
 });
 
@@ -709,17 +709,19 @@ app.get('/admin/settings', requireAdmin, async (req, res) => {
     if (Array.isArray(rows)) {
       for (const r of rows) { map[r.k] = r.v; }
     }
-    res.json({ ok: true, settings: {
-      // Backward compat: announcement_md kept if present; new fields preferred
-      announcement_md: map.announcement_md || '',
-      announcement_md_en: map.announcement_md_en || map.announcement_md || '',
-      announcement_md_fr: map.announcement_md_fr || '',
-      discord_url: map.discord_url || '',
-      github_issues_url: map.github_issues_url || ''
-    }});
+    res.json({
+      ok: true, settings: {
+        // Backward compat: announcement_md kept if present; new fields preferred
+        announcement_md: map.announcement_md || '',
+        announcement_md_en: map.announcement_md_en || map.announcement_md || '',
+        announcement_md_fr: map.announcement_md_fr || '',
+        discord_url: map.discord_url || '',
+        github_issues_url: map.github_issues_url || ''
+      }
+    });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'load settings failed' });
+    res.status(500).json({ ok: false, error: 'load settings failed' });
   }
 });
 
@@ -738,10 +740,10 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
     for (const [k, v] of entries) {
       await pool.query('INSERT INTO app_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v=VALUES(v)', [k, v]);
     }
-    res.json({ ok:true });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'save settings failed' });
+    res.status(500).json({ ok: false, error: 'save settings failed' });
   }
 });
 
@@ -749,42 +751,42 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
 app.post('/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ ok:false, error:'missing credentials' });
+    if (!username || !password) return res.status(400).json({ ok: false, error: 'missing credentials' });
     const pool = await dbPoolPromise;
     const [rows] = await pool.query('SELECT * FROM users WHERE username=? LIMIT 1', [username]);
-    if (!Array.isArray(rows) || rows.length === 0) return res.status(401).json({ ok:false, error:'invalid credentials' });
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(401).json({ ok: false, error: 'invalid credentials' });
     const user = rows[0];
     const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ ok:false, error:'invalid credentials' });
+    if (!ok) return res.status(401).json({ ok: false, error: 'invalid credentials' });
     const token = signToken(user);
-    res.json({ ok:true, token, forcePasswordReset: !!user.force_password_reset });
+    res.json({ ok: true, token, forcePasswordReset: !!user.force_password_reset });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'login failed' });
+    res.status(500).json({ ok: false, error: 'login failed' });
   }
 });
 
 app.post('/auth/set-password', authJwt, async (req, res) => {
   try {
     const { newPassword } = req.body || {};
-    if (!newPassword || String(newPassword).length < 6) return res.status(400).json({ ok:false, error:'password too short' });
+    if (!newPassword || String(newPassword).length < 6) return res.status(400).json({ ok: false, error: 'password too short' });
     const pool = await dbPoolPromise;
     const hash = await bcrypt.hash(newPassword, 10);
     await pool.query('UPDATE users SET password_hash=?, force_password_reset=0 WHERE id=?', [hash, req.user.sub]);
-    res.json({ ok:true });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'set-password failed' });
+    res.status(500).json({ ok: false, error: 'set-password failed' });
   }
 });
 
 // Existing endpoints: protect with both JWT (user logged-in) and app token for model calls
 if (PASSWORD_AUTH) {
-  app.get('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
-  app.post('/ping', authJwt, (req, res) => res.json({ ok:true, pong:true }));
+  app.get('/ping', authJwt, (req, res) => res.json({ ok: true, pong: true }));
+  app.post('/ping', authJwt, (req, res) => res.json({ ok: true, pong: true }));
 } else {
-  app.get('/ping', (req, res) => res.json({ ok:true, pong:true }));
-  app.post('/ping', (req, res) => res.json({ ok:true, pong:true }));
+  app.get('/ping', (req, res) => res.json({ ok: true, pong: true }));
+  app.post('/ping', (req, res) => res.json({ ok: true, pong: true }));
 }
 
 const upload = multer({
@@ -798,7 +800,7 @@ app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
       await logRequestIp(req);
       return res.json({ ok: true, data: { echo: message, note: 'fast-path' } });
     }
-  } catch (_) {}
+  } catch (_) { }
   return handleRequestWithRetry(req, res);
 });
 
@@ -810,7 +812,7 @@ app.get('/admin/ip-report', requireAdmin, async (req, res) => {
       'SELECT ip, COUNT(*) AS cnt FROM request_logs WHERE created_at >= (NOW() - INTERVAL 1 DAY) GROUP BY ip ORDER BY cnt DESC'
     );
     const lines = Array.isArray(rows) ? rows.map(r => `${r.ip}\t${r.cnt}`).join('\n') : '';
-    const fname = `ip_report_${new Date().toISOString().slice(0,10)}.txt`;
+    const fname = `ip_report_${new Date().toISOString().slice(0, 10)}.txt`;
     res.set('Content-Type', 'text/plain; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="${fname}"`);
     res.send(lines + (lines ? '\n' : ''));
@@ -844,11 +846,11 @@ app.get('/announcement', async (req, res) => {
     const processed = md
       .replace(/\$discord/g, `[![Discord](${discordImg})](${discord || '#'})`)
       .replace(/\$github_issues/g, `[![GitHub](${githubImg})](${issues || '#'})`);
-  const id = crypto.createHash('sha1').update(processed).digest('hex');
-  res.json({ ok: true, id, markdown: processed });
+    const id = crypto.createHash('sha1').update(processed).digest('hex');
+    res.json({ ok: true, id, markdown: processed });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ ok:false, error:'announcement failed' });
+    res.status(500).json({ ok: false, error: 'announcement failed' });
   }
 });
 
