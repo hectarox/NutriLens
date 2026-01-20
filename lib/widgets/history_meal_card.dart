@@ -5,7 +5,8 @@ class _HistoryMealCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback? onTap;
   final void Function(Map<String, dynamic> source)? onDrop;
-  const _HistoryMealCard({required this.meal, required this.onDelete, this.onTap, this.onDrop});
+  const _HistoryMealCard(
+      {required this.meal, required this.onDelete, this.onTap, this.onDrop});
 
   @override
   Widget build(BuildContext context) {
@@ -14,13 +15,17 @@ class _HistoryMealCard extends StatelessWidget {
     final kcal = meal['kcal'] as int?;
     final kcalColor = kcal == null
         ? scheme.onSurfaceVariant
-        : (kcal < 700 ? Colors.green : (kcal < 1000 ? Colors.orange : Colors.red));
+        : (kcal < 700
+            ? Colors.green
+            : (kcal < 1000 ? Colors.orange : Colors.red));
     final carbs = meal['carbs'] as int?;
     final protein = meal['protein'] as int?;
     final fat = meal['fat'] as int?;
 
     // Check if meal has an image - only show image widget if image exists
-    final hasImage = meal['image'] != null || (meal['imagePath'] is String && (meal['imagePath'] as String).isNotEmpty);
+    final hasImage = meal['image'] != null ||
+        (meal['imagePath'] is String &&
+            (meal['imagePath'] as String).isNotEmpty);
 
     final Widget cardContent = Padding(
       padding: const EdgeInsets.all(12.0),
@@ -31,7 +36,9 @@ class _HistoryMealCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: _buildImageWidget(
-                meal['image'] != null ? meal['image'] : (meal['imagePath'] as String),
+                meal['image'] != null
+                    ? meal['image']
+                    : (meal['imagePath'] as String),
                 width: 72,
                 height: 72,
                 fit: BoxFit.cover,
@@ -61,14 +68,18 @@ class _HistoryMealCard extends StatelessWidget {
                       ),
                     ),
                     Builder(builder: (ctx) {
-                      final state = context.findAncestorStateOfType<_MainScreenState>();
+                      final state =
+                          context.findAncestorStateOfType<_MainScreenState>();
                       final dt = state?.asDateTime(meal['time']);
                       return dt == null
                           ? const SizedBox.shrink()
                           : Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
@@ -128,22 +139,33 @@ class _HistoryMealCard extends StatelessWidget {
                 final updated = await showDialog<Map<String, dynamic>>(
                   context: context,
                   builder: (ctx) {
-                    final nameCtrl = TextEditingController(text: meal['name']?.toString() ?? '');
-                    final kcalCtrl = TextEditingController(text: meal['kcal']?.toString() ?? '');
-                    final carbsCtrl = TextEditingController(text: meal['carbs']?.toString() ?? '');
-                    final proteinCtrl = TextEditingController(text: meal['protein']?.toString() ?? '');
-                    final fatCtrl = TextEditingController(text: meal['fat']?.toString() ?? '');
+                    final nameCtrl = TextEditingController(
+                        text: meal['name']?.toString() ?? '');
+                    final kcalCtrl = TextEditingController(
+                        text: meal['kcal']?.toString() ?? '');
+                    final carbsCtrl = TextEditingController(
+                        text: meal['carbs']?.toString() ?? '');
+                    final proteinCtrl = TextEditingController(
+                        text: meal['protein']?.toString() ?? '');
+                    final fatCtrl = TextEditingController(
+                        text: meal['fat']?.toString() ?? '');
                     // Prefill grams with AI-provided value or, for groups, the combined sum of children
                     int? defaultG = meal['grams'] as int?;
-                    if (defaultG == null && meal['isGroup'] == true && meal['children'] is List) {
+                    if (defaultG == null &&
+                        meal['isGroup'] == true &&
+                        meal['children'] is List) {
                       int sum = 0;
                       int count = 0;
                       for (final c in (meal['children'] as List)) {
-                        if (c is Map && c['grams'] is int) { sum += c['grams'] as int; count++; }
+                        if (c is Map && c['grams'] is int) {
+                          sum += c['grams'] as int;
+                          count++;
+                        }
                       }
                       if (count > 0 && sum > 0) defaultG = sum;
                     }
-                    final gramsCtrl = TextEditingController(text: (defaultG?.toString() ?? ''));
+                    final gramsCtrl = TextEditingController(
+                        text: (defaultG?.toString() ?? ''));
                     bool linkValues = true;
                     final oldK = meal['kcal'] as int?;
                     final oldC = meal['carbs'] as int?;
@@ -158,22 +180,46 @@ class _HistoryMealCard extends StatelessWidget {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: S.of(context).name)),
+                              TextField(
+                                  controller: nameCtrl,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).name)),
                               const SizedBox(height: 8),
-                              TextField(controller: gramsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).weightLabel)),
+                              TextField(
+                                  controller: gramsCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).weightLabel)),
                               CheckboxListTile(
                                 contentPadding: EdgeInsets.zero,
                                 value: linkValues,
-                                onChanged: (v) => setSB(() => linkValues = v ?? true),
+                                onChanged: (v) =>
+                                    setSB(() => linkValues = v ?? true),
                                 title: Text(S.of(context).linkValues),
                               ),
-                              TextField(controller: kcalCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).kcalLabel)),
+                              TextField(
+                                  controller: kcalCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).kcalLabel)),
                               const SizedBox(height: 8),
-                              TextField(controller: carbsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).carbsLabel)),
+                              TextField(
+                                  controller: carbsCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).carbsLabel)),
                               const SizedBox(height: 8),
-                              TextField(controller: proteinCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).proteinLabel)),
+                              TextField(
+                                  controller: proteinCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).proteinLabel)),
                               const SizedBox(height: 8),
-                              TextField(controller: fatCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: S.of(context).fatLabel)),
+                              TextField(
+                                  controller: fatCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                      labelText: S.of(context).fatLabel)),
                             ],
                           ),
                         ),
@@ -183,15 +229,20 @@ class _HistoryMealCard extends StatelessWidget {
                               setSB(() {
                                 nameCtrl.text = meal['name']?.toString() ?? '';
                                 gramsCtrl.text = (defaultG?.toString() ?? '');
-                                kcalCtrl.text = (meal['kcal']?.toString() ?? '');
-                                carbsCtrl.text = (meal['carbs']?.toString() ?? '');
-                                proteinCtrl.text = (meal['protein']?.toString() ?? '');
+                                kcalCtrl.text =
+                                    (meal['kcal']?.toString() ?? '');
+                                carbsCtrl.text =
+                                    (meal['carbs']?.toString() ?? '');
+                                proteinCtrl.text =
+                                    (meal['protein']?.toString() ?? '');
                                 fatCtrl.text = (meal['fat']?.toString() ?? '');
                               });
                             },
                             child: Text(S.of(context).restoreDefaults),
                           ),
-                          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.of(context).cancel)),
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: Text(S.of(context).cancel)),
                           FilledButton(
                             onPressed: () {
                               int? newG = int.tryParse(gramsCtrl.text.trim());
@@ -201,27 +252,58 @@ class _HistoryMealCard extends StatelessWidget {
                               int? newF = int.tryParse(fatCtrl.text.trim());
                               if (linkValues) {
                                 double? factor;
-                                if (oldC != null && newC != null && oldC > 0 && newC != oldC) {
+                                if (oldC != null &&
+                                    newC != null &&
+                                    oldC > 0 &&
+                                    newC != oldC) {
                                   factor = newC / oldC;
-                                } else if (oldP != null && newP != null && oldP > 0 && newP != oldP) {
+                                } else if (oldP != null &&
+                                    newP != null &&
+                                    oldP > 0 &&
+                                    newP != oldP) {
                                   factor = newP / oldP;
-                                } else if (oldF != null && newF != null && oldF > 0 && newF != oldF) {
+                                } else if (oldF != null &&
+                                    newF != null &&
+                                    oldF > 0 &&
+                                    newF != oldF) {
                                   factor = newF / oldF;
-                                } else if (oldK != null && newK != null && oldK > 0 && newK != oldK) {
+                                } else if (oldK != null &&
+                                    newK != null &&
+                                    oldK > 0 &&
+                                    newK != oldK) {
                                   factor = newK / oldK;
-                                } else if (newG != null && oldG != null && oldG > 0 && newG != oldG) {
+                                } else if (newG != null &&
+                                    oldG != null &&
+                                    oldG > 0 &&
+                                    newG != oldG) {
                                   factor = newG / oldG;
                                 }
                                 if (factor != null) {
-                                  if ((newG == null || newG == oldG) && oldG != null) newG = (oldG * factor).round();
-                                  if (newK == null || newK == oldK) newK = oldK != null ? (oldK * factor).round() : null;
-                                  if (newC == null || newC == oldC) newC = oldC != null ? (oldC * factor).round() : null;
-                                  if (newP == null || newP == oldP) newP = oldP != null ? (oldP * factor).round() : null;
-                                  if (newF == null || newF == oldF) newF = oldF != null ? (oldF * factor).round() : null;
+                                  if ((newG == null || newG == oldG) &&
+                                      oldG != null)
+                                    newG = (oldG * factor).round();
+                                  if (newK == null || newK == oldK)
+                                    newK = oldK != null
+                                        ? (oldK * factor).round()
+                                        : null;
+                                  if (newC == null || newC == oldC)
+                                    newC = oldC != null
+                                        ? (oldC * factor).round()
+                                        : null;
+                                  if (newP == null || newP == oldP)
+                                    newP = oldP != null
+                                        ? (oldP * factor).round()
+                                        : null;
+                                  if (newF == null || newF == oldF)
+                                    newF = oldF != null
+                                        ? (oldF * factor).round()
+                                        : null;
                                 }
                               }
                               Navigator.pop(ctx, {
-                                'name': nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
+                                'name': nameCtrl.text.trim().isEmpty
+                                    ? null
+                                    : nameCtrl.text.trim(),
                                 'grams': newG,
                                 'kcal': newK,
                                 'carbs': newC,
@@ -244,8 +326,10 @@ class _HistoryMealCard extends StatelessWidget {
                   meal['protein'] = updated['protein'] ?? meal['protein'];
                   meal['fat'] = updated['fat'] ?? meal['fat'];
                   // ignore: use_build_context_synchronously
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.of(context).mealUpdated)));
-                  final state = context.findAncestorStateOfType<_MainScreenState>();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(S.of(context).mealUpdated)));
+                  final state =
+                      context.findAncestorStateOfType<_MainScreenState>();
                   await state?._saveHistory();
                 }
               } else if (val == 'delete') {
@@ -255,8 +339,12 @@ class _HistoryMealCard extends StatelessWidget {
                     title: Text(S.of(context).deleteItem),
                     content: Text(S.of(context).deleteConfirm),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.of(context).cancel)),
-                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(S.of(context).delete)),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text(S.of(context).cancel)),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: Text(S.of(context).delete)),
                     ],
                   ),
                 );
@@ -264,8 +352,16 @@ class _HistoryMealCard extends StatelessWidget {
               }
             },
             itemBuilder: (ctx) => [
-              PopupMenuItem(value: 'edit', child: ListTile(leading: const Icon(Icons.edit_outlined), title: Text(S.of(context).edit))),
-              PopupMenuItem(value: 'delete', child: ListTile(leading: const Icon(Icons.delete_outline), title: Text(S.of(context).delete))),
+              PopupMenuItem(
+                  value: 'edit',
+                  child: ListTile(
+                      leading: const Icon(Icons.edit_outlined),
+                      title: Text(S.of(context).edit))),
+              PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                      leading: const Icon(Icons.delete_outline),
+                      title: Text(S.of(context).delete))),
             ],
           ),
         ],
@@ -290,7 +386,9 @@ class _HistoryMealCard extends StatelessWidget {
               ),
             ),
             child: Card(
-              color: highlight ? Theme.of(context).colorScheme.secondaryContainer : null,
+              color: highlight
+                  ? Theme.of(context).colorScheme.secondaryContainer
+                  : null,
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
                 onTap: onTap,

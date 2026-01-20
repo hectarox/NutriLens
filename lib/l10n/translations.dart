@@ -67,6 +67,52 @@ class S {
   String get tabHistory => _code == 'fr' ? 'Historique' : 'History';
   String get tabMain => _code == 'fr' ? 'Principal' : 'Main';
   String get tabDaily => _code == 'fr' ? 'Quotidien' : 'Daily';
+  String get tabChat => _code == 'fr' ? 'Chat IA' : 'AI Chat';
+
+  String get askAboutDiets => _code == 'fr' ? 'Posez des questions sur les régimes, recettes...' : 'Ask about diets, recipes...';
+  String get calories => _code == 'fr' ? 'Calories' : 'Calories';
+  String get ingredients => _code == 'fr' ? 'Ingrédients' : 'Ingredients';
+  String get instructions => _code == 'fr' ? 'Instructions' : 'Instructions';
+  String get viewSource => _code == 'fr' ? 'Voir la source' : 'View Source';
+  String get addToHistory => _code == 'fr' ? 'Ajouter à l\'historique' : 'Add to History';
+  String get addedToHistory => _code == 'fr' ? 'Ajouté à l\'historique' : 'Added to history';
+  String get portions => _code == 'fr' ? 'Portions' : 'Portions';
+  String get kcal => _code == 'fr' ? 'Kcal' : 'Kcal';
+  String get carbs => _code == 'fr' ? 'Glucides' : 'Carbs';
+  String get protein => _code == 'fr' ? 'Prot' : 'Prot';
+  String get fat => _code == 'fr' ? 'Lipides' : 'Fat';
+  String get weight => _code == 'fr' ? 'Poids' : 'Weight';
+
+  String get chatWelcome => _code == 'fr' 
+      ? "Bonjour ! Je suis votre assistant nutritionnel personnel. J'ai accès à votre historique alimentaire et à vos objectifs. Comment puis-je vous aider aujourd'hui ?" 
+      : "Hello! I'm your personal nutrition assistant. I have access to your food history and goals. How can I help you today?";
+
+  String chatServerError(int code) => _code == 'fr'
+      ? "Désolé, une erreur serveur est survenue ($code)."
+      : "Sorry, I encountered a server error ($code).";
+
+  String chatGenericError(String details) => _code == 'fr'
+      ? "Désolé, une erreur est survenue : $details"
+      : "Sorry, I encountered an error: $details";
+
+  String get recipeFromAiChat => _code == 'fr'
+      ? "Recette depuis le chat IA"
+      : "Recipe from AI Chat";
+  
+  String get suggestDinner => _code == 'fr' ? "Idées de dîner sain" : "Healthy dinner ideas";
+  String get suggestLunch => _code == 'fr' ? "Idées de déjeuner" : "Lunch ideas";
+  String get suggestBreakfast => _code == 'fr' ? "Idées de petit-déjeuner" : "Breakfast ideas";
+  String get suggestSnack => _code == 'fr' ? "Collations saines" : "Healthy snacks";
+  
+  String get analyzeBreakfast => _code == 'fr' ? "Analyser mon petit-déjeuner" : "Analyze my breakfast";
+  String get analyzeLunch => _code == 'fr' ? "Analyser mon déjeuner" : "Analyze my lunch";
+  String get analyzeDinner => _code == 'fr' ? "Analyser mon dîner" : "Analyze my dinner";
+  String get analyzeSnack => _code == 'fr' ? "Analyser ma collation" : "Analyze my snack";
+
+  String get quickBreakfast => _code == 'fr' ? "Recettes rapides matin" : "Quick morning recipes";
+  String get quickLunch => _code == 'fr' ? "Déjeuner sur le pouce" : "Quick lunch";
+  String get lightDinner => _code == 'fr' ? "Dîner léger" : "Light dinner";
+  String get lowCarb => _code == 'fr' ? "Faible en glucides" : "Low carb";
 
   String get describeMeal => _code == 'fr'
       ? 'Indiquez des précisions pour aider l\'IA'
@@ -351,4 +397,39 @@ class S {
 
   // Generic actions
   String get retry => _code == 'fr' ? 'Réessayer' : 'Retry';
+
+  // Calculator
+  String get calculatorTitle => _code == 'fr' ? 'Calculateur de besoins' : 'Daily Needs Calculator';
+  String get age => _code == 'fr' ? 'Âge (ans)' : 'Age (years)';
+  String get bodyWeight => _code == 'fr' ? 'Poids (kg)' : 'Weight (kg)';
+  String get height => _code == 'fr' ? 'Taille (cm)' : 'Height (cm)';
+  String get gender => _code == 'fr' ? 'Sexe' : 'Gender';
+  String get male => _code == 'fr' ? 'Homme' : 'Male';
+  String get female => _code == 'fr' ? 'Femme' : 'Female';
+  String get activityLevel => _code == 'fr' ? 'Niveau d\'activité' : 'Activity Level';
+  String get sedentary =>
+      _code == 'fr' ? 'Sédentaire' : 'Sedentary';
+  String get lightlyActive => _code == 'fr'
+      ? 'Légèrement actif (1-3j/sem)'
+      : 'Lightly active (1-3d/wk)';
+  String get moderatelyActive => _code == 'fr'
+      ? 'Modérément actif (3-5j/sem)'
+      : 'Moderately active (3-5d/wk)';
+  String get veryActive => _code == 'fr'
+      ? 'Très actif (6-7j/sem)'
+      : 'Very active (6-7d/wk)';
+  String get extraActive => _code == 'fr'
+      ? 'Extrêmement actif'
+      : 'Extra active';
+  String get goal => _code == 'fr' ? 'Objectif' : 'Goal';
+  String get loseWeight => _code == 'fr' ? 'Perdre du poids' : 'Lose weight';
+  String get loseWeightFast => _code == 'fr' ? 'Perte rapide (non recommandé)' : 'Fast weight loss (not recommended)';
+  String get maintainWeight => _code == 'fr' ? 'Maintenir le poids' : 'Maintain weight';
+  String get gainWeight => _code == 'fr' ? 'Prendre du poids' : 'Gain weight';
+  String get calculate => _code == 'fr' ? 'Calculer' : 'Calculate';
+  String get useThisTarget => _code == 'fr' ? 'Utiliser cette cible' : 'Use this target';
+  String get dailyNeedsResult => _code == 'fr' ? 'Vos besoins :' : 'Your potential needs:';
+  String get targetLabel => _code == 'fr' ? 'Cible (Objectif)' : 'Target (Goal)';
+  String get remainingLabel => _code == 'fr' ? 'Restant' : 'Remaining';
+  String get consumedLabel => _code == 'fr' ? 'Consommé' : 'Consumed';
 }

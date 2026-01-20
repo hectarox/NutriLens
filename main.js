@@ -24,6 +24,8 @@ const apiKeys = (process.env.GEMINI_API_KEYS || '')
   .map((k) => k.trim())
   .filter(Boolean);
 
+const specialKey = process.env.SPECIAL_KEY ? process.env.SPECIAL_KEY.trim() : null;
+
 const useVertexArg = process.argv.includes('--vertex');
 const vertexApiKey = process.env.VERTEX_API_KEY;
 
@@ -60,6 +62,60 @@ const nutritionResponseSchema = {
     'Proteines',
     'Lipides',
   ],
+};
+
+const chatResponseSchema = {
+  type: Type.ARRAY,
+  items: {
+    // Discriminated union by `type` to reduce hallucinated/irrelevant fields.
+    anyOf: [
+      {
+        type: Type.OBJECT,
+        properties: {
+          type: { type: Type.STRING, enum: ['message'] },
+          content: { type: Type.STRING },
+        },
+        required: ['type', 'content'],
+        additionalProperties: false,
+      },
+      {
+        type: Type.OBJECT,
+        properties: {
+          type: { type: Type.STRING, enum: ['quickReplies'] },
+          quickReplies: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['type', 'quickReplies'],
+        additionalProperties: false,
+      },
+      {
+        type: Type.OBJECT,
+        properties: {
+          type: { type: Type.STRING, enum: ['tip'] },
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+        },
+        required: ['type', 'title', 'description'],
+        additionalProperties: false,
+      },
+      {
+        type: Type.OBJECT,
+        properties: {
+          type: { type: Type.STRING, enum: ['recipe'] },
+          title: { type: Type.STRING },
+          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+          instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          calories: { type: Type.STRING },
+          carbs: { type: Type.STRING },
+          protein: { type: Type.STRING },
+          fat: { type: Type.STRING },
+          weight: { type: Type.STRING },
+          sourceUrl: { type: Type.STRING },
+        },
+        required: ['type', 'title', 'ingredients', 'instructions', 'calories'],
+        additionalProperties: false,
+      },
+    ],
+  },
 };
 
 const generationDefaults = {
@@ -196,6 +252,167 @@ function extractResponseText(response) {
     }
   }
   return '';
+}
+
+function normalizeA2UIComponents(parsed, fallbackText = '') {
+  const toMessage = (content) => ([{ type: 'message', content: String(content || '').trim() }].filter(x => x.content));
+
+  if (Array.isArray(parsed)) {
+    const out = [];
+    for (const item of parsed) {
+      if (item && typeof item === 'object') {
+        if (typeof item.type === 'string' && item.type.trim()) {
+          out.push(item);
+        } else {
+          out.push({ type: 'message', content: JSON.stringify(item) });
+        }
+      } else if (typeof item === 'string' && item.trim()) {
+        out.push({ type: 'message', content: item });
+      }
+    }
+    return out.length ? out : toMessage(fallbackText);
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    if (typeof parsed.type === 'string' && parsed.type.trim()) return [parsed];
+    return toMessage(fallbackText || JSON.stringify(parsed));
+  }
+
+  if (typeof parsed === 'string') return toMessage(parsed);
+  return toMessage(fallbackText);
+}
+
+function stripMarkdownFences(text) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  if (!t.startsWith('```')) return t;
+  return t.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '').trim();
+}
+
+function tryParseJsonMaybe(text) {
+  const cleaned = stripMarkdownFences(text);
+  if (!cleaned) return null;
+  // First attempt
+  try {
+    const first = JSON.parse(cleaned);
+    // Some SDKs may wrap JSON as a string
+    if (typeof first === 'string') {
+      const inner = first.trim();
+      if ((inner.startsWith('[') && inner.endsWith(']')) || (inner.startsWith('{') && inner.endsWith('}'))) {
+        try {
+          return JSON.parse(inner);
+        } catch (_) {
+          return first;
+        }
+      }
+    }
+    return first;
+  } catch (_) {
+    // Heuristic: extract the outermost JSON array/object substring
+    const s = cleaned;
+    const firstArr = s.indexOf('[');
+    const lastArr = s.lastIndexOf(']');
+    if (firstArr >= 0 && lastArr > firstArr) {
+      const sub = s.slice(firstArr, lastArr + 1);
+      try { return JSON.parse(sub); } catch (_) {}
+    }
+    const firstObj = s.indexOf('{');
+    const lastObj = s.lastIndexOf('}');
+    if (firstObj >= 0 && lastObj > firstObj) {
+      const sub = s.slice(firstObj, lastObj + 1);
+      try { return JSON.parse(sub); } catch (_) {}
+    }
+    return null;
+  }
+}
+
+function sanitizeA2UIComponents(components) {
+  const out = [];
+  const pushMessage = (content) => {
+    const c = String(content || '').trim();
+    if (c) out.push({ type: 'message', content: c });
+  };
+
+  const toStringArray = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value.map(v => String(v ?? '').trim()).filter(Boolean).slice(0, 12);
+  };
+
+  const toString = (value) => String(value ?? '').trim();
+
+  const items = Array.isArray(components) ? components : [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const type = toString(raw.type);
+
+    if (type === 'message') {
+      const content = toString(raw.content);
+      if (content) {
+        // If content itself looks like JSON, try to recover instead of showing raw JSON.
+        const maybe = tryParseJsonMaybe(content);
+        if (Array.isArray(maybe)) {
+          const recovered = sanitizeA2UIComponents(maybe);
+          if (recovered.length) {
+            out.push(...recovered);
+            continue;
+          }
+        }
+        pushMessage(content);
+      }
+      continue;
+    }
+
+    if (type === 'quickReplies') {
+      const quickReplies = toStringArray(raw.quickReplies);
+      if (quickReplies.length) out.push({ type: 'quickReplies', quickReplies });
+      continue;
+    }
+
+    if (type === 'tip') {
+      const title = toString(raw.title) || 'Tip';
+      const description = toString(raw.description);
+      if (description) out.push({ type: 'tip', title, description });
+      continue;
+    }
+
+    if (type === 'recipe') {
+      const title = toString(raw.title) || 'Recipe';
+      const ingredients = toStringArray(raw.ingredients);
+      const instructions = toStringArray(raw.instructions);
+      const calories = toString(raw.calories);
+      const carbs = toString(raw.carbs);
+      const protein = toString(raw.protein);
+      const fat = toString(raw.fat);
+      const weight = toString(raw.weight);
+      const sourceUrl = toString(raw.sourceUrl);
+      if (ingredients.length && instructions.length) {
+        out.push({
+          type: 'recipe',
+          title,
+          ingredients,
+          instructions,
+          calories,
+          carbs,
+          protein,
+          fat,
+          weight,
+          sourceUrl,
+        });
+      } else {
+        pushMessage(`I couldn't format a full recipe for "${title}". Try asking again with more specifics.`);
+      }
+      continue;
+    }
+
+    // Unknown type: reduce to a safe message.
+    try {
+      pushMessage(JSON.stringify(raw));
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  return out.length ? out : [{ type: 'message', content: 'Sorry, I had trouble formatting that response. Please try again.' }];
 }
 
 async function englishNormalizeWithFlash(ai, originalJsonish) {
@@ -366,14 +583,30 @@ async function handleVertexRequest(req, res) {
 }
 
 async function handleRequestWithRetry(req, res, attempt = 0) {
-  if (!apiKeys || apiKeys.length === 0) {
+  const keysToTry = [];
+  if (specialKey) keysToTry.push({ key: specialKey, isSpecial: true });
+  // Add normal keys, rotating starting from current index
+  for (let i = 0; i < apiKeys.length; i++) {
+    keysToTry.push({ key: apiKeys[(currentApiKeyIndex + i) % apiKeys.length], isSpecial: false });
+  }
+  // Advance rotation for next request
+  if (apiKeys.length > 0) {
+    currentApiKeyIndex = (currentApiKeyIndex + 1) % apiKeys.length;
+  }
+
+  if (keysToTry.length === 0) {
     return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
   }
-  if (attempt >= apiKeys.length) {
+  
+  // If we are in a recursive retry (attempt > 0), we might want to skip the special key if it was already tried?
+  // But handleRequestWithRetry is recursive with 'attempt' index.
+  // Let's just use the 'attempt' index to pick from our constructed list.
+  
+  if (attempt >= keysToTry.length) {
     return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
   }
 
-  const apiKey = getNextApiKey();
+  const { key: apiKey, isSpecial } = keysToTry[attempt];
   const ai = new GoogleGenAI({ apiKey });
 
   try {
@@ -439,7 +672,11 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
       console.log('[AI] user prompt ->', userPrompt);
     } catch (_) { }
 
-    const modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
+    // Special key uses gemini-3-pro-preview, others use gemini-3-flash-preview (unless flash query param overrides)
+    let modelName = useFlash ? 'gemini-2.5-flash' : 'gemini-3-flash-preview';
+    if (isSpecial && !useFlash) {
+      modelName = 'gemini-3-pro-preview';
+    }
 
     for (let i = 0; i < 10; i += 1) {
       const response = await ai.models.generateContent({
@@ -491,17 +728,16 @@ async function handleRequestWithRetry(req, res, attempt = 0) {
     }
 
     console.warn('Model returned no content after 10 tries');
+    // If we failed 10 times with this key/model, try next key
+    if (attempt + 1 < keysToTry.length) {
+      return handleRequestWithRetry(req, res, attempt + 1);
+    }
     return res.status(503).json({ ok: false, error: 'Empty response from model after retries.' });
   } catch (error) {
-    console.error(`Error with API key ${apiKey}:`, error);
+    console.error(`Error with API key ${apiKey} (special=${isSpecial}):`, error);
     const status = error?.status ?? error?.response?.status ?? 0;
-    if (status === 503 || status === 500) {
-      if (attempt + 1 < apiKeys.length) {
-        return handleRequestWithRetry(req, res, attempt + 1);
-      }
-      return res.status(503).json({ ok: false, error: 'AI is overloaded. You can retry with a faster, less precise model.' });
-    }
-    if (attempt + 1 < apiKeys.length) {
+    // Retry on error if we have more keys
+    if (attempt + 1 < keysToTry.length) {
       return handleRequestWithRetry(req, res, attempt + 1);
     }
     return res.status(503).json({ ok: false, error: 'Service is currently unavailable, please try again later.' });
@@ -926,6 +1162,140 @@ const upload = multer({
   storage: multer.memoryStorage(),
 });
 const modelGuards = PASSWORD_AUTH ? [authJwt, requireToken] : [requireToken];
+
+app.post('/chat', ...modelGuards, async (req, res) => {
+  try {
+    const { message, history, lang } = req.body || {};
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'message is required' });
+    }
+
+    const acceptLang = (req.get('accept-language') || '').split(',')[0].trim().toLowerCase();
+    const bodyLang = (typeof lang === 'string' ? lang.trim().toLowerCase() : '');
+    const resolvedLang = (bodyLang === 'fr' || bodyLang.startsWith('fr'))
+      ? 'fr'
+      : ((bodyLang === 'en' || bodyLang.startsWith('en'))
+        ? 'en'
+        : (acceptLang.startsWith('fr') ? 'fr' : 'en'));
+    const replyLanguage = resolvedLang === 'fr' ? 'french' : 'english';
+
+    try {
+      console.log('[chat] incoming', {
+        message: message?.slice ? message.slice(0, 120) : message,
+        hasHistory: Array.isArray(history),
+        ip: getClientIp(req),
+      });
+    } catch (_) { /* ignore logging errors */ }
+
+    if (!apiKeys || apiKeys.length === 0) {
+      return res.status(503).json({ error: 'No API keys configured' });
+    }
+
+    const baseHistory = history && Array.isArray(history) ? history : [
+      {
+        role: 'user',
+        parts: [{ text: 'You are a helpful nutrition assistant. You help users with diets, recipes, and healthy eating tips. You must output JSON.' }],
+      },
+      {
+        role: 'model',
+        parts: [{ text: '[]' }],
+      }
+    ];
+
+    const contents = [
+      ...baseHistory,
+      {
+        role: 'user',
+        parts: [{ text: message }],
+      },
+    ];
+
+    const systemInstruction = {
+      role: 'system',
+      parts: [{
+        text: [
+          'You are a nutrition assistant.',
+          `Reply in: ${replyLanguage}.`,
+          'You must reply to the recipe request with quick replies first.',
+          'You MUST prompt the user on which recipe to choose, give them options using the quickReplies component type, YOU MUST USE IT. Even if the user asks just for pasta recipe, give it choice and ALWAYS.',
+          'Always return an array of components.',
+          'you must take the recipes from google, put the links in source.',
+          'IMPORTANT: Follow the schema strictly. Never invent extra keys.',
+          'Allowed shapes:',
+          '- message: {"type":"message","content":"..."} (ONLY these keys).',
+          '- quickReplies: {"type":"quickReplies","quickReplies":["..."]} (ONLY these keys).',
+          '- tip: {"type":"tip","title":"...","description":"..."} (ONLY these keys).',
+          '- recipe: {"type":"recipe","title":"...","ingredients":["..."],"instructions":["..."],"calories":"...", optional "carbs","protein","fat","weight","sourceUrl"}.',
+          'Use type="message" with a helpful string when unsure.',
+          'Use type="quickReplies" to offer quick replies (buttons).',
+          'To display buttons, you MUST include a component with type="quickReplies". Text alone does not create buttons.',
+          'Whenever you ask a clarifying question, provide relevant options in a "quickReplies" component.',
+          'CRITICAL: If the user asks for a generic dish (e.g. "pasta", "salad", "soup") or ingredient, DO NOT provide a recipe immediately. Instead, use type="quickReplies" to ask for specifics (e.g. "Carbonara", "Bolognese", "Pesto").',
+          'Only provide a recipe when the user request is specific.',
+          'Do not include markdown fences.',
+        ].join(' '),
+      }],
+    };
+
+    let lastError;
+    let attempts = 0;
+    const keysToTry = [];
+    if (specialKey) keysToTry.push({ key: specialKey, isSpecial: true });
+    apiKeys.forEach(k => keysToTry.push({ key: k, isSpecial: false }));
+
+    for (const { key, isSpecial } of keysToTry) {
+      attempts++;
+      const ai = new GoogleGenAI({ apiKey: key });
+      try {
+        const config = {
+          ...generationDefaults,
+          responseMimeType: 'application/json',
+          responseSchema: chatResponseSchema,
+          systemInstruction,
+          safetySettings,
+        };
+        // Only enable tools for the special key
+        if (isSpecial) {
+          config.tools = [{ googleSearch: {} }, { urlContext: {} }];
+        }
+
+        const modelResponse = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents,
+          config,
+        });
+
+        const rawText = extractResponseText(modelResponse);
+        const parsed = tryParseJsonMaybe(rawText);
+        const normalized = normalizeA2UIComponents(parsed, rawText);
+        const sanitized = sanitizeA2UIComponents(normalized);
+        try {
+          const types = sanitized.map(c => c.type).join(', ');
+          console.log(
+            `[chat] success (${Array.isArray(parsed)
+              ? 'array'
+              : (parsed && typeof parsed === 'object' ? 'object' : 'other')}) -> ${normalized.length} components: [${types}]`
+          );
+        } catch (_) {}
+        return res.json(sanitized);
+      } catch (err) {
+        lastError = err;
+        const status = err?.status ?? err?.response?.status ?? 0;
+        // If special key fails, we always continue to normal keys.
+        // If normal key fails, we retry only on transient errors.
+        const shouldRetry = isSpecial || ((status === 429 || status === 500 || status === 503) && (attempts < keysToTry.length));
+        if (!shouldRetry) break;
+      }
+    }
+
+    console.error('Chat error (all keys failed):', lastError);
+    return res.status(500).json({ error: lastError?.message || 'chat failed' });
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/data', ...modelGuards, upload.single('image'), async (req, res) => {
   try {
     const { message } = req.body || {};

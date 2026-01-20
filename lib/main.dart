@@ -26,6 +26,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'services/background_uploader.dart' as bg;
+import 'screens/chat_screen.dart';
 
 // Include the widget files as parts
 part 'widgets/common_widgets.dart';
@@ -34,6 +35,7 @@ part 'widgets/expandable_day_section.dart';
 part 'widgets/history_meal_card.dart';
 part 'screens/barcode_scanner_screen.dart';
 part 'models/off_product.dart';
+part 'widgets/calculator_dialog.dart';
 // permission_handler not required for nutrition; we rely on health plugin's auth flow
 
 // Split parts
@@ -186,6 +188,8 @@ class AppSettings extends ChangeNotifier {
 final appSettings = AppSettings();
 String get kDefaultBaseUrl =>
     dotenv.maybeGet('APP_BASE_URL') ?? 'http://141.145.210.115:3007';
+String get kAppToken => dotenv.maybeGet('APP_TOKEN') ?? 'FromHectaroxWithLove';
+
 // When PASSWORD_AUTH=false in .env.client, the app skips password login
 bool get kPasswordAuthEnabled {
   final v =
@@ -954,7 +958,7 @@ class _MainScreenState extends State<MainScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _tabController = TabController(length: 3, vsync: this, initialIndex: 1);
+    _tabController = TabController(length: 4, vsync: this, initialIndex: 1);
     // Rebuild when switching tabs so the meal button visibility updates
     _tabController.addListener(() {
       if (mounted) setState(() {});
@@ -3440,6 +3444,16 @@ class _MainScreenState extends State<MainScreen>
           _buildHistoryTab(),
           _buildMainTab(),
           _buildDailyTab(),
+          ChatScreen(
+            history: _history,
+            dailyLimit: _dailyLimit,
+            onAddToHistory: (meal) {
+              setState(() {
+                _history.insert(0, meal);
+              });
+              _saveHistory();
+            },
+          ),
         ],
       ),
       bottomNavigationBar: Column(
@@ -3520,6 +3534,7 @@ class _MainScreenState extends State<MainScreen>
                   Tab(
                       icon: const Icon(Icons.local_fire_department),
                       text: s.tabDaily),
+                  Tab(icon: const Icon(Icons.chat_bubble_outline), text: s.tabChat),
                 ],
                 indicatorColor: scheme.primary,
                 labelColor: scheme.primary,
@@ -5222,9 +5237,29 @@ class _MainScreenState extends State<MainScreen>
                   const SizedBox(height: 12),
                   _ProgressBar(value: pct.clamp(0.0, 1.5), color: barColor),
                   const SizedBox(height: 16),
-                  Text(s.dailyLimit),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(s.dailyLimit),
+                      TextButton.icon(
+                        icon: const Icon(Icons.calculate, size: 18),
+                        label: Text(s.calculate),
+                        onPressed: () async {
+                          final res = await showDialog<int>(
+                            context: context,
+                            builder: (_) =>
+                                TDEECalculatorDialog(currentLimit: _dailyLimit),
+                          );
+                          if (res != null) {
+                            setState(() => _dailyLimit = res);
+                            await _saveDailyLimit();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                   Slider(
-                    value: _dailyLimit.toDouble(),
+                    value: _dailyLimit.toDouble().clamp(1000.0, 4000.0),
                     min: 1000,
                     max: 4000,
                     divisions: 30,
@@ -5243,77 +5278,148 @@ class _MainScreenState extends State<MainScreen>
           const SizedBox(height: 16),
           if (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
             Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.local_fire_department),
-                        const SizedBox(width: 8),
-                        Expanded(
-                            child: Text(s.burnedTodayTitle,
-                                style: Theme.of(context).textTheme.titleLarge)),
-                        IconButton(
-                          tooltip: s.burnedHelp,
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: Text(s.burnedTodayTitle),
-                                content: Text(s.burnedHelpText),
-                                actions: [
-                                  TextButton(
-                                      onPressed: () => Navigator.pop(ctx),
-                                      child: Text(s.ok)),
-                                ],
+                padding: const EdgeInsets.all(20.0),
+                child: Builder(builder: (context) {
+                  final burned = _todayTotalBurnedKcal?.round() ?? 0;
+                  final consumed = todayKcal.toInt();
+                  final limit = _dailyLimit;
+
+                  // Logic: Limit is the Target (TDEE). 
+                  // We do NOT add burned calories to the allowable limit.
+                  // Burned is displayed for info only (Input vs Output).
+                  final allowable = limit;
+                  final remaining = allowable - consumed;
+                  final progress = allowable > 0
+                      ? (consumed / allowable).clamp(0.0, 1.0)
+                      : 0.0;
+                  final isOver = consumed > allowable;
+                  // Colors
+                  const Color cConsumed = Colors.orange;
+                  const Color cBurned = Colors.redAccent; // Info only
+                  final Color cRemaining = isOver ? Colors.red : Colors.green;
+
+                  return Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const FaIcon(FontAwesomeIcons.chartLine,
+                                  color: Colors.blue, size: 20),
+                              const SizedBox(width: 8),
+                              Text(s.burnedTodayTitle, // Keep title or change to "Daily Summary"
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 16)),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              if (_loadingBurned)
+                                const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                              else
+                                IconButton(
+                                  icon: const Icon(Icons.refresh,
+                                      size: 20, color: Colors.grey),
+                                  onPressed: _loadingBurned
+                                      ? null
+                                      : _loadTodayBurned,
+                                  tooltip: s.refreshBurned,
+                                )
+                            ],
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // 3-column stats
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Column(children: [
+                            Text('$consumed',
+                                style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: cConsumed)),
+                            Text(s.dailyIntake,
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.grey)),
+                          ]),
+                          Column(children: [
+                            Text('$burned',
+                                style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: cBurned)),
+                            Text(s.burnedLabel,
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.grey)),
+                          ]),
+                          Column(children: [
+                            Text(
+                                (remaining >= 0 ? remaining : -remaining)
+                                    .toString(),
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: cRemaining)),
+                            Text(
+                                remaining >= 0
+                                    ? s.remainingLabel
+                                    : (s.locale.languageCode == 'fr'
+                                        ? 'Excès'
+                                        : 'Over'),
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.grey)),
+                          ]),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      // Custom Progress Bar
+                      Stack(
+                        children: [
+                          Container(
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          FractionallySizedBox(
+                            widthFactor: progress,
+                            child: Container(
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color:
+                                    isOver ? Colors.red : Colors.blueAccent,
+                                borderRadius: BorderRadius.circular(6),
                               ),
-                            );
-                          },
-                          icon: const Icon(Icons.help_outline),
-                        ),
-                        IconButton(
-                          tooltip: s.refreshBurned,
-                          onPressed: _loadingBurned ? null : _loadTodayBurned,
-                          icon: _loadingBurned
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.refresh),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Total burned (basal + active) — compare to today's consumed kcal instead of daily limit
-                    Text(_todayTotalBurnedKcal != null
-                        ? '${s.totalLabel}: ${_todayTotalBurnedKcal!.round()} ${s.kcalSuffix}'
-                        : s.burnedNotAvailable),
-                    const SizedBox(height: 8),
-                    _ProgressBar(
-                      value: todayKcal <= 0 || _todayTotalBurnedKcal == null
-                          ? 0
-                          : (_todayTotalBurnedKcal! / todayKcal)
-                              .clamp(0.0, 1.5),
-                      color: Colors.blueAccent,
-                    ),
-                    const SizedBox(height: 12),
-                    Builder(builder: (_) {
-                      final burned = _todayTotalBurnedKcal?.round() ?? 0;
-                      final net = todayKcal -
-                          burned; // positive -> surplus, negative -> deficit
-                      final isSurplus = net > 0;
-                      final label = isSurplus
-                          ? s.surplusLabel
-                          : (net < 0 ? s.deficitLabel : s.netKcalLabel);
-                      final display = net == 0 ? '0' : net.abs().toString();
-                      return Text(
-                          '${s.netKcalLabel}: ${isSurplus ? '+' : (net < 0 ? '-' : '')}$display ${s.kcalSuffix} • $label');
-                    }),
-                  ],
-                ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('0',
+                                style:
+                                    TextStyle(fontSize: 10, color: Colors.grey)),
+                            Text('${s.totalLabel} (Net): $allowable',
+                                style: const TextStyle(
+                                    fontSize: 10, color: Colors.grey)),
+                          ]),
+                    ],
+                  );
+                }),
               ),
             ),
           const SizedBox(height: 16),
